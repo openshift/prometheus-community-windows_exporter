@@ -3,6 +3,7 @@ repository:
 build:
     binaries:
         - name: windows_exporter
+    flags: -mod=vendor
     ldflags: |
         -X github.com/prometheus/common/version.Version={{.Version}}
         -X github.com/prometheus/common/version.Revision={{.Revision}}
