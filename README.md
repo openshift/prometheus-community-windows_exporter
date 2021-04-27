@@ -11,9 +11,12 @@ Name     | Description | Enabled by default
 ---------|-------------|--------------------
 [ad](docs/collector.ad.md) | Active Directory Domain Services |
 [adfs](docs/collector.adfs.md) | Active Directory Federation Services |
+[cache](docs/collector.cache.md) | Cache metrics |
 [cpu](docs/collector.cpu.md) | CPU usage | &#10003;
+[cpu_info](docs/collector.cpu_info.md) | CPU Information |
 [cs](docs/collector.cs.md) | "Computer System" metrics (system properties, num cpus/total memory) | &#10003;
 [container](docs/collector.container.md) | Container metrics |
+[dfsr](docs/collector.dfsr.md) | DFSR metrics |
 [dhcp](docs/collector.dhcp.md) | DHCP Server |
 [dns](docs/collector.dns.md) | DNS Server |
 [exchange](docs/collector.exchange.md) | Exchange metrics |
@@ -38,6 +41,7 @@ Name     | Description | Enabled by default
 [process](docs/collector.process.md) | Per-process metrics |
 [remote_fx](docs/collector.remote_fx.md) | RemoteFX protocol (RDP) metrics |
 [service](docs/collector.service.md) | Service state metrics | &#10003;
+[smtp](docs/collector.smtp.md) | IIS SMTP Server |
 [system](docs/collector.system.md) | System calls | &#10003;
 [tcp](docs/collector.tcp.md) | TCP connections |
 [time](docs/collector.time.md) | Windows Time Service |
@@ -75,6 +79,7 @@ Flag     | Description | Default value
 `--collectors.enabled` | Comma-separated list of collectors to use. Use `[defaults]` as a placeholder for all the collectors enabled by default." | `[defaults]`
 `--collectors.print` | If true, print available collectors and exit. | 
 `--scrape.timeout-margin` | Seconds to subtract from the timeout allowed by the client. Tune to allow for overhead or high loads. | `0.5`
+`--web.config.file` | A [web config][web_config] for setting up TLS and Auth | None
 
 ## Installation
 The latest release can be downloaded from the [releases page](https://github.com/prometheus-community/windows_exporter/releases).
@@ -109,10 +114,9 @@ On some older versions of Windows you may need to surround parameter values with
 msiexec /i C:\Users\Administrator\Downloads\windows_exporter.msi ENABLED_COLLECTORS="ad,iis,logon,memory,process,tcp,thermalzone" TEXTFILE_DIR="C:\custom_metrics\"
 ```
 
-## Roadmap
+## Supported versions
 
-See [open issues](https://github.com/prometheus-community/windows_exporter/issues)
-
+windows_exporter supports Windows Server versions 2008R2 and later, and desktop Windows version 7 and later.
 
 ## Usage
 
@@ -168,3 +172,5 @@ CLI flags enjoy a higher priority over values specified in the configuration fil
 ## License
 
 Under [MIT](LICENSE)
+
+[web_config]: https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md

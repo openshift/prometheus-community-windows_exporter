@@ -19,10 +19,12 @@ import (
 	"github.com/StackExchange/wmi"
 	"github.com/prometheus-community/windows_exporter/collector"
 	"github.com/prometheus-community/windows_exporter/config"
+	"github.com/prometheus-community/windows_exporter/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
+	"github.com/prometheus/exporter-toolkit/web"
+	webflag "github.com/prometheus/exporter-toolkit/web/kingpinflag"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -73,16 +75,6 @@ var (
 		nil,
 		nil,
 	)
-
-	// This can be removed when client_golang exposes this on Windows
-	// (See https://github.com/prometheus/client_golang/issues/376)
-	startTime     = float64(time.Now().Unix())
-	startTimeDesc = prometheus.NewDesc(
-		"process_start_time_seconds",
-		"Start time of the process since unix epoch in seconds.",
-		nil,
-		nil,
-	)
 )
 
 // Describe sends all the descriptors of the collectors included to
@@ -103,12 +95,6 @@ const (
 // Collect sends the collected metrics from each of the collectors to
 // prometheus.
 func (coll windowsCollector) Collect(ch chan<- prometheus.Metric) {
-	ch <- prometheus.MustNewConstMetric(
-		startTimeDesc,
-		prometheus.CounterValue,
-		startTime,
-	)
-
 	t := time.Now()
 	cs := make([]string, 0, len(coll.collectors))
 	for name := range coll.collectors {
@@ -274,6 +260,7 @@ func main() {
 			"config.file",
 			"YAML configuration file to use. Values set in this file will be overriden by CLI flags.",
 		).String()
+		webConfig     = webflag.AddFlags(kingpin.CommandLine)
 		listenAddress = kingpin.Flag(
 			"telemetry.addr",
 			"host:port for exporter.",
@@ -414,7 +401,10 @@ func main() {
 
 	go func() {
 		log.Infoln("Starting server on", *listenAddress)
-		log.Fatalf("cannot start windows_exporter: %s", http.ListenAndServe(*listenAddress, nil))
+		server := &http.Server{Addr: *listenAddress}
+		if err := web.ListenAndServe(server, *webConfig, log.NewToolkitAdapter()); err != nil {
+			log.Fatalf("cannot start windows_exporter: %s", err)
+		}
 	}()
 
 	for {
