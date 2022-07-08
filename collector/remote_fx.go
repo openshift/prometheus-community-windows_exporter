@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package collector
@@ -60,7 +61,7 @@ func NewRemoteFx() (Collector, error) {
 		),
 		CurrentTCPBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "net_current_tcp_bandwidth"),
-			"TCP Bandwidth detected in bytes per seccond.",
+			"TCP Bandwidth detected in bytes per second.",
 			[]string{"session_name"},
 			nil,
 		),
@@ -344,8 +345,4 @@ func (c *RemoteFxCollector) collectRemoteFXGraphicsCounters(ctx *ScrapeContext, 
 	}
 
 	return nil, nil
-}
-
-func milliSecToSec(t float64) float64 {
-	return t / 1000
 }

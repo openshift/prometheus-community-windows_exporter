@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package main
@@ -258,7 +259,7 @@ func main() {
 	var (
 		configFile = kingpin.Flag(
 			"config.file",
-			"YAML configuration file to use. Values set in this file will be overriden by CLI flags.",
+			"YAML configuration file to use. Values set in this file will be overridden by CLI flags.",
 		).String()
 		webConfig     = webflag.AddFlags(kingpin.CommandLine)
 		listenAddress = kingpin.Flag(
@@ -324,13 +325,13 @@ func main() {
 
 	initWbem()
 
-	isInteractive, err := svc.IsAnInteractiveSession()
+	isService, err := svc.IsWindowsService()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	stopCh := make(chan bool)
-	if !isInteractive {
+	if isService {
 		go func() {
 			err = svc.Run(serviceName, &windowsExporterService{stopCh: stopCh})
 			if err != nil {
@@ -503,7 +504,7 @@ func (mh *metricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Warnln("Couldn't create filtered metrics handler: ", err)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(fmt.Sprintf("Couldn't create filtered metrics handler: %s", err)))
+		w.Write([]byte(fmt.Sprintf("Couldn't create filtered metrics handler: %s", err))) //nolint:errcheck
 		return
 	}
 	reg.MustRegister(wc)

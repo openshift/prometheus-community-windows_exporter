@@ -8,12 +8,15 @@ windows_exporter.exe: **/*.go
 test:
 	go test -v ./...
 
+bench:
+	go test -v -bench='benchmark(cpu|logicaldisk|logon|memory|net|process|service|system|tcp|time)collector' ./...
+
 lint:
 	golangci-lint -c .golangci.yaml run
 
 .PHONY: e2e-test
 e2e-test: windows_exporter.exe
-	powershell -NonInteractive -ExecutionPolicy Bypass -File .\tools\end-to-end-test.ps1
+	pwsh -NonInteractive -ExecutionPolicy Bypass -File .\tools\end-to-end-test.ps1
 
 fmt:
 	gofmt -l -w -s .

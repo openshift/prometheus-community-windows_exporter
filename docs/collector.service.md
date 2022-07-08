@@ -16,6 +16,12 @@ A WMI filter on which services to include. Recommended to keep down number of re
 
 Example: `--collector.service.services-where="Name='windows_exporter'"`
 
+Example config win_exporter.yml for multiple services: `services-where: Name='SQLServer' OR Name='Couchbase' OR Name='Spooler' OR Name='ActiveMQ'`
+
+### `--collector.service.use-api`
+
+Uses API calls instead of WMI for performance optimization. **Note** the previous flag (`--collector.service.services-where`) won't have any effect on this mode.
+
 ## Metrics
 
 Name | Description | Type | Labels
@@ -48,7 +54,7 @@ A service can have the following start modes:
 - `manual`
 - `disabled`
 
-### Status
+### Status (not available in API mode)
 
 A service can have any of the following statuses:
 - `ok`

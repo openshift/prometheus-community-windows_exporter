@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package collector
@@ -118,7 +119,7 @@ func NewNetworkCollector() (Collector, error) {
 			nil,
 		),
 		CurrentBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(Namespace, subsystem, "current_bandwidth"),
+			prometheus.BuildFQName(Namespace, subsystem, "current_bandwidth_bytes"),
 			"(Network.CurrentBandwidth)",
 			[]string{"nic"},
 			nil,
@@ -251,7 +252,7 @@ func (c *NetworkCollector) collect(ctx *ScrapeContext, ch chan<- prometheus.Metr
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentBandwidth,
 			prometheus.GaugeValue,
-			nic.CurrentBandwidth,
+			nic.CurrentBandwidth/8,
 			name,
 		)
 	}

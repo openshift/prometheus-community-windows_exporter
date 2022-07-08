@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !notextfile
 // +build !notextfile
 
 package collector
@@ -21,6 +22,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -37,7 +39,7 @@ var (
 	textFileDirectory = kingpin.Flag(
 		"collector.textfile.directory",
 		"Directory to read text files with metrics from.",
-	).Default("C:\\Program Files\\windows_exporter\\textfile_inputs").String()
+	).Default(getDefaultPath()).String()
 
 	mtimeDesc = prometheus.NewDesc(
 		prometheus.BuildFQName(Namespace, "textfile", "mtime_seconds"),
@@ -63,6 +65,31 @@ func NewTextFileCollector() (Collector, error) {
 	return &textFileCollector{
 		path: *textFileDirectory,
 	}, nil
+}
+
+// Given a slice of metric families, determine if any two entries are duplicates.
+// Duplicates will be detected where the metric name, labels and label values are identical.
+func duplicateMetricEntry(metricFamilies []*dto.MetricFamily) bool {
+	uniqueMetrics := make(map[string]map[string]string)
+	for _, metricFamily := range metricFamilies {
+		metric_name := *metricFamily.Name
+		for _, metric := range metricFamily.Metric {
+			metric_labels := metric.GetLabel()
+			labels := make(map[string]string)
+			for _, label := range metric_labels {
+				labels[label.GetName()] = label.GetValue()
+			}
+			// Check if key is present before appending
+			_, mapContainsKey := uniqueMetrics[metric_name]
+
+			// Duplicate metric found with identical labels & label values
+			if mapContainsKey == true && reflect.DeepEqual(uniqueMetrics[metric_name], labels) {
+				return true
+			}
+			uniqueMetrics[metric_name] = labels
+		}
+	}
+	return false
 }
 
 func convertMetricFamily(metricFamily *dto.MetricFamily, ch chan<- prometheus.Metric) {
@@ -223,6 +250,10 @@ func (c *textFileCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Met
 		error = 1.0
 	}
 
+	// Create empty metricFamily slice here and append parsedFamilies to it inside the loop.
+	// Once loop is complete, raise error if any duplicates are present.
+	// This will ensure that duplicate metrics are correctly detected between multiple .prom files.
+	var metricFamilies = []*dto.MetricFamily{}
 fileLoop:
 	for _, f := range files {
 		if !strings.HasSuffix(f.Name(), ".prom") {
@@ -271,7 +302,16 @@ fileLoop:
 		// a failure does not appear fresh.
 		mtimes[f.Name()] = f.ModTime()
 
-		for _, mf := range parsedFamilies {
+		for _, metricFamily := range parsedFamilies {
+			metricFamilies = append(metricFamilies, metricFamily)
+		}
+	}
+
+	if duplicateMetricEntry(metricFamilies) {
+		log.Errorf("Duplicate metrics detected in files")
+		error = 1.0
+	} else {
+		for _, mf := range metricFamilies {
 			convertMetricFamily(mf, ch)
 		}
 	}
@@ -296,4 +336,9 @@ func checkBOM(encoding utfbom.Encoding) error {
 	}
 
 	return fmt.Errorf(encoding.String())
+}
+
+func getDefaultPath() string {
+	execPath, _ := os.Executable()
+	return filepath.Join(filepath.Dir(execPath), "textfile_inputs")
 }
