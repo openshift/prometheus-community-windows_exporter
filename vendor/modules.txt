@@ -39,7 +39,7 @@ github.com/cespare/xxhash/v2
 github.com/containerd/cgroups/stats/v1
 # github.com/dimchansky/utfbom v1.1.1
 github.com/dimchansky/utfbom
-# github.com/go-kit/log v0.2.0
+# github.com/go-kit/log v0.2.1
 github.com/go-kit/log
 github.com/go-kit/log/level
 # github.com/go-logfmt/logfmt v0.5.1
