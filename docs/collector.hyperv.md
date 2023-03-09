@@ -5,7 +5,7 @@ The hyperv collector exposes metrics about the Hyper-V hypervisor
 |||
 -|-
 Metric name prefix  | `hyperv`
-Classes             | `Win32_PerfRawData_VmmsVirtualMachineStats_HyperVVirtualMachineHealthSummary`<br/>`Win32_PerfRawData_VidPerfProvider_HyperVVMVidPartition`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorRootPartition`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisor`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorLogicalProcessor`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorRootVirtualProcessor`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorVirtualProcessor`<br/>`Win32_PerfRawData_NvspSwitchStats_HyperVVirtualSwitch`<br/>`Win32_PerfRawData_EthernetPerfProvider_HyperVLegacyNetworkAdapter`<br/>`Win32_PerfRawData_Counters_HyperVVirtualStorageDevice`<br/>`Win32_PerfRawData_NvspNicStats_HyperVVirtualNetworkAdapter`
+Classes             | `Win32_PerfRawData_VmmsVirtualMachineStats_HyperVVirtualMachineHealthSummary`<br/>`Win32_PerfRawData_VidPerfProvider_HyperVVMVidPartition`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorRootPartition`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisor`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorRootVirtualProcessor`<br/>`Win32_PerfRawData_HvStats_HyperVHypervisorVirtualProcessor`<br/>`Win32_PerfRawData_NvspSwitchStats_HyperVVirtualSwitch`<br/>`Win32_PerfRawData_EthernetPerfProvider_HyperVLegacyNetworkAdapter`<br/>`Win32_PerfRawData_Counters_HyperVVirtualStorageDevice`<br/>`Win32_PerfRawData_NvspNicStats_HyperVVirtualNetworkAdapter`
 Enabled by default? | No
 
 ## Flags
@@ -44,9 +44,6 @@ Name | Description | Type | Labels
 `windows_hyperv_root_partition_virtual_tlb_pages` | _Not yet documented_ | counter | None
 `windows_hyperv_hypervisor_virtual_processors` | _Not yet documented_ | counter | None
 `windows_hyperv_hypervisor_logical_processors` | _Not yet documented_ | counter | None
-`windows_hyperv_host_lp_guest_run_time_percent` | _Not yet documented_ | counter | `core`
-`windows_hyperv_host_lp_hypervisor_run_time_percent` | _Not yet documented_ | counter | `core`
-`windows_hyperv_host_lp_total_run_time_percent` | _Not yet documented_ | counter | `core`
 `windows_hyperv_host_cpu_guest_run_time` | _Not yet documented_ | counter | `core`
 `windows_hyperv_host_cpu_hypervisor_run_time` | _Not yet documented_ | counter | `core`
 `windows_hyperv_host_cpu_remote_run_time` | _Not yet documented_ | counter | `core`
@@ -54,16 +51,6 @@ Name | Description | Type | Labels
 `windows_hyperv_vm_cpu_guest_run_time` | _Not yet documented_ | counter | `vm`, `core`
 `windows_hyperv_vm_cpu_hypervisor_run_time` | _Not yet documented_ | counter | `vm`, `core`
 `windows_hyperv_vm_cpu_remote_run_time` | _Not yet documented_ | counter | `vm`, `core`
-`windows_hyperv_vm_memory_added_total` | _Not yet documented_ | counter | `vm`
-`windows_hyperv_vm_memory_pressure_average` | _Not yet documented_ | gauge | `vm`
-`windows_hyperv_vm_memory_pressure_current` | _Not yet documented_ | counter | `vm`
-`windows_hyperv_vm_memory_physical_guest_visible` | _Not yet documented_ | gauge | `vm`
-`windows_hyperv_vm_memory_pressure_maximum` | _Not yet documented_ | gauge | `vm`
-`windows_hyperv_vm_memory_add_operations_total` | _Not yet documented_ | counter | `vm`
-`windows_hyperv_vm_memory_remove_operations_total` | _Not yet documented_ | counter | `vm`
-`windows_hyperv_vm_memory_pressure_minumim` | _Not yet documented_ | gauge | `vm`
-`windows_hyperv_vm_memory_physical` | _Not yet documented_ | gauge | `vm`
-`windows_hyperv_vm_memory_removed_total` | _Not yet documented_ | counter | `vm`
 `windows_hyperv_vm_cpu_total_run_time` | _Not yet documented_ | counter | `vm`, `core`
 `windows_hyperv_vswitch_broadcast_packets_received_total` | _Not yet documented_ | counter | `vswitch`
 `windows_hyperv_vswitch_broadcast_packets_sent_total` | _Not yet documented_ | counter | `vswitch`
@@ -120,10 +107,6 @@ Percent of physical CPU resources used by all VMs (on all monitored hosts)
 Percent of physical CPU resources by the hosts themselves (on all monitored hosts)
 ```
 (sum by (instance)(rate(windows_hyperv_host_cpu_total_run_time{}[1m]))) / sum by (instance)(windows_cs_logical_processors{}) / 100000
-```
-Percent of physical CPU resources by the hypervisor (on all monitored hosts)
-```
-(sum by (instance)(rate(windows_hyperv_host_lp_total_run_time_percent{}[1m]))) / sum by (instance)(windows_hyperv_hypervisor_logical_processors{}) / 100000
 ```
 
 ## Alerting examples
