@@ -6,6 +6,7 @@
 // +build windows
 
 // Package eventlog implements access to Windows event log.
+//
 package eventlog
 
 import (

@@ -27,11 +27,6 @@ Name     | Description | Enabled by default
 [logical_disk](docs/collector.logical_disk.md) | Logical disks, disk I/O | &#10003;
 [logon](docs/collector.logon.md) | User logon sessions |
 [memory](docs/collector.memory.md) | Memory usage metrics |
-[mscluster_cluster](docs/collector.mscluster_cluster.md) | MSCluster cluster metrics |
-[mscluster_network](docs/collector.mscluster_network.md) | MSCluster network metrics |
-[mscluster_node](docs/collector.mscluster_node.md) | MSCluster Node metrics |
-[mscluster_resource](docs/collector.mscluster_resource.md) | MSCluster Resource metrics |
-[mscluster_resourcegroup](docs/collector.mscluster_resourcegroup.md) | MSCluster ResourceGroup metrics |
 [msmq](docs/collector.msmq.md) | MSMQ queues |
 [mssql](docs/collector.mssql.md) | [SQL Server Performance Objects](https://docs.microsoft.com/en-us/sql/relational-databases/performance-monitor/use-sql-server-objects#SQLServerPOs) metrics  |
 [netframework_clrexceptions](docs/collector.netframework_clrexceptions.md) | .NET Framework CLR Exceptions |
@@ -46,7 +41,6 @@ Name     | Description | Enabled by default
 [os](docs/collector.os.md) | OS metrics (memory, processes, users) | &#10003;
 [process](docs/collector.process.md) | Per-process metrics |
 [remote_fx](docs/collector.remote_fx.md) | RemoteFX protocol (RDP) metrics |
-[scheduled_task](docs/collector.scheduled_task.md) | Scheduled Tasks metrics |
 [service](docs/collector.service.md) | Service state metrics | &#10003;
 [smtp](docs/collector.smtp.md) | IIS SMTP Server |
 [system](docs/collector.system.md) | System calls | &#10003;
@@ -84,7 +78,7 @@ Flag     | Description | Default value
 `--telemetry.path` | URL path for surfacing collected metrics. | `/metrics`
 `--telemetry.max-requests` | Maximum number of concurrent requests. 0 to disable. | `5`
 `--collectors.enabled` | Comma-separated list of collectors to use. Use `[defaults]` as a placeholder which gets expanded containing all the collectors enabled by default." | `[defaults]`
-`--collectors.print` | If true, print available collectors and exit. |
+`--collectors.print` | If true, print available collectors and exit. | 
 `--scrape.timeout-margin` | Seconds to subtract from the timeout allowed by the client. Tune to allow for overhead or high loads. | `0.5`
 `--web.config.file` | A [web config][web_config] for setting up TLS and Auth | None
 
@@ -121,11 +115,6 @@ On some older versions of Windows you may need to surround parameter values with
 msiexec /i C:\Users\Administrator\Downloads\windows_exporter.msi ENABLED_COLLECTORS="ad,iis,logon,memory,process,tcp,thermalzone" TEXTFILE_DIR="C:\custom_metrics\"
 ```
 
-
-## Kubernetes Implementation
-
-See detailed steps to install on Windows Kubernetes [here](./kubernetes/kubernetes.md).
-
 ## Supported versions
 
 windows_exporter supports Windows Server versions 2008R2 and later, and desktop Windows version 7 and later.
@@ -157,7 +146,7 @@ When there are multiple processes with the same name, WMI represents those after
 Using `[defaults]`  with `--collectors.enabled` argument which gets expanded with all default collectors.
 
     .\windows_exporter.exe --collectors.enabled "[defaults],process,container"
-
+    
 This enables the additional process and container collectors on top of the defaults.
 
 ### Using a configuration file

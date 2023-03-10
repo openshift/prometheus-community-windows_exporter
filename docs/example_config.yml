@@ -5,8 +5,6 @@ collectors:
 collector:
   service:
     services-where: Name='windows_exporter'
-  scheduled_task:
-    blacklist: /Microsoft/.+
 log:
   level: debug
 scrape:
