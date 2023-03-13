@@ -4,24 +4,28 @@
 package main
 
 import (
+	//Its important that we do these first so that we can register with the windows service control ASAP to avoid timeouts
+	"github.com/prometheus-community/windows_exporter/initiate"
+	"github.com/prometheus-community/windows_exporter/log"
+
 	"encoding/json"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/user"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/sys/windows/svc"
-
 	"github.com/StackExchange/wmi"
 	"github.com/prometheus-community/windows_exporter/collector"
 	"github.com/prometheus-community/windows_exporter/config"
-	"github.com/prometheus-community/windows_exporter/log"
+
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
@@ -48,7 +52,6 @@ type prometheusVersion struct {
 const (
 	defaultCollectors            = "cpu,cs,logical_disk,net,os,service,system,textfile"
 	defaultCollectorsPlaceholder = "[defaults]"
-	serviceName                  = "windows_exporter"
 )
 
 var (
@@ -261,11 +264,7 @@ func main() {
 			"config.file",
 			"YAML configuration file to use. Values set in this file will be overridden by CLI flags.",
 		).String()
-		webConfig     = webflag.AddFlags(kingpin.CommandLine)
-		listenAddress = kingpin.Flag(
-			"telemetry.addr",
-			"host:port for exporter.",
-		).Default(":9182").String()
+		webConfig   = webflag.AddFlags(kingpin.CommandLine, ":9182")
 		metricsPath = kingpin.Flag(
 			"telemetry.path",
 			"URL path for surfacing collected metrics.",
@@ -287,7 +286,6 @@ func main() {
 			"Seconds to subtract from the timeout allowed by the client. Tune to allow for overhead or high loads.",
 		).Default("0.5").Float64()
 	)
-
 	log.AddFlags(kingpin.CommandLine)
 	kingpin.Version(version.Print("windows_exporter"))
 	kingpin.HelpFlag.Short('h')
@@ -295,7 +293,7 @@ func main() {
 	// Load values from configuration file(s). Executable flags must first be parsed, in order
 	// to load the specified file(s).
 	kingpin.Parse()
-
+	log.Debug("Logging has Started")
 	if *configFile != "" {
 		resolver, err := config.NewResolver(*configFile)
 		if err != nil {
@@ -305,6 +303,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("%v\n", err)
 		}
+
+		// NOTE: This is temporary fix for issue #1092, calling kingpin.Parse
+		// twice makes slices flags duplicate its value, this clean up
+		// the first parse before the second call.
+		*webConfig.WebListenAddresses = (*webConfig.WebListenAddresses)[1:]
+
 		// Parse flags once more to include those discovered in configuration file(s).
 		kingpin.Parse()
 	}
@@ -325,24 +329,19 @@ func main() {
 
 	initWbem()
 
-	isService, err := svc.IsWindowsService()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	stopCh := make(chan bool)
-	if isService {
-		go func() {
-			err = svc.Run(serviceName, &windowsExporterService{stopCh: stopCh})
-			if err != nil {
-				log.Errorf("Failed to start service: %v", err)
-			}
-		}()
-	}
-
 	collectors, err := loadCollectors(*enabledCollectors)
 	if err != nil {
 		log.Fatalf("Couldn't load collectors: %s", err)
+	}
+
+	u, err := user.Current()
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	log.Infof("Running as %v", u.Username)
+	if strings.Contains(u.Username, "ContainerAdministrator") || strings.Contains(u.Username, "ContainerUser") {
+		log.Warnf("Running as a preconfigured Windows Container user. This may mean you do not have Windows HostProcess containers configured correctly and some functionality will not work as expected.")
 	}
 
 	log.Infof("Enabled collectors: %v", strings.Join(keys(collectors), ", "))
@@ -401,15 +400,14 @@ func main() {
 	log.Infoln("Build context", version.BuildContext())
 
 	go func() {
-		log.Infoln("Starting server on", *listenAddress)
-		server := &http.Server{Addr: *listenAddress}
-		if err := web.ListenAndServe(server, *webConfig, log.NewToolkitAdapter()); err != nil {
+		server := &http.Server{}
+		if err := web.ListenAndServe(server, webConfig, log.NewToolkitAdapter()); err != nil {
 			log.Fatalf("cannot start windows_exporter: %s", err)
 		}
 	}()
 
 	for {
-		if <-stopCh {
+		if <-initiate.StopCh {
 			log.Info("Shutting down windows_exporter")
 			break
 		}
@@ -451,33 +449,6 @@ func withConcurrencyLimit(n int, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type windowsExporterService struct {
-	stopCh chan<- bool
-}
-
-func (s *windowsExporterService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
-	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
-	changes <- svc.Status{State: svc.StartPending}
-	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
-loop:
-	for {
-		select {
-		case c := <-r:
-			switch c.Cmd {
-			case svc.Interrogate:
-				changes <- c.CurrentStatus
-			case svc.Stop, svc.Shutdown:
-				s.stopCh <- true
-				break loop
-			default:
-				log.Error(fmt.Sprintf("unexpected control request #%d", c))
-			}
-		}
-	}
-	changes <- svc.Status{State: svc.StopPending}
-	return
-}
-
 type metricsHandler struct {
 	timeoutMargin    float64
 	collectorFactory func(timeout time.Duration, requestedCollectors []string) (error, *windowsCollector)
@@ -509,8 +480,8 @@ func (mh *metricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	reg.MustRegister(wc)
 	reg.MustRegister(
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-		prometheus.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		collectors.NewGoCollector(),
 		version.NewCollector("windows_exporter"),
 	)
 

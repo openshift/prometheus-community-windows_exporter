@@ -53,6 +53,11 @@ type HyperVCollector struct {
 	LogicalProcessors *prometheus.Desc
 	VirtualProcessors *prometheus.Desc
 
+	// Win32_PerfRawData_HvStats_HyperVHypervisorLogicalProcessor
+	HostLPGuestRunTimePercent      *prometheus.Desc
+	HostLPHypervisorRunTimePercent *prometheus.Desc
+	HostLPTotalRunTimePercent      *prometheus.Desc
+
 	// Win32_PerfRawData_HvStats_HyperVHypervisorRootVirtualProcessor
 	HostGuestRunTime      *prometheus.Desc
 	HostHypervisorRunTime *prometheus.Desc
@@ -111,6 +116,18 @@ type HyperVCollector struct {
 	VMNetworkDroppedPacketsOutgoing *prometheus.Desc
 	VMNetworkPacketsReceived        *prometheus.Desc
 	VMNetworkPacketsSent            *prometheus.Desc
+
+	// Win32_PerfRawData_BalancerStats_HyperVDynamicMemoryVM
+	VMMemoryAddedMemory                *prometheus.Desc
+	VMMemoryAveragePressure            *prometheus.Desc
+	VMMemoryCurrentPressure            *prometheus.Desc
+	VMMemoryGuestVisiblePhysicalMemory *prometheus.Desc
+	VMMemoryMaximumPressure            *prometheus.Desc
+	VMMemoryMemoryAddOperations        *prometheus.Desc
+	VMMemoryMemoryRemoveOperations     *prometheus.Desc
+	VMMemoryMinimumPressure            *prometheus.Desc
+	VMMemoryPhysicalMemory             *prometheus.Desc
+	VMMemoryRemovedMemory              *prometheus.Desc
 }
 
 // NewHyperVCollector ...
@@ -292,6 +309,27 @@ func NewHyperVCollector() (Collector, error) {
 			prometheus.BuildFQName(Namespace, buildSubsystemName("hypervisor"), "logical_processors"),
 			"The number of logical processors present in the system",
 			nil,
+			nil,
+		),
+
+		//
+
+		HostLPGuestRunTimePercent: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("host_lp"), "guest_run_time_percent"),
+			"The percentage of time spent by the processor in guest code",
+			[]string{"core"},
+			nil,
+		),
+		HostLPHypervisorRunTimePercent: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("host_lp"), "hypervisor_run_time_percent"),
+			"The percentage of time spent by the processor in hypervisor code",
+			[]string{"core"},
+			nil,
+		),
+		HostLPTotalRunTimePercent: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("host_lp"), "total_run_time_percent"),
+			"The percentage of time spent by the processor in guest and hypervisor code",
+			[]string{"core"},
 			nil,
 		),
 
@@ -593,6 +631,69 @@ func NewHyperVCollector() (Collector, error) {
 			[]string{"vm_interface"},
 			nil,
 		),
+
+		//
+
+		VMMemoryAddedMemory: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "added_total"),
+			"This counter represents memory in MB added to the VM",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryAveragePressure: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "pressure_average"),
+			"This gauge represents the average pressure in the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryCurrentPressure: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "pressure_current"),
+			"This gauge represents the current pressure in the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryGuestVisiblePhysicalMemory: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "physical_guest_visible"),
+			"'This gauge represents the amount of memory in MB visible to the VM guest.'",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryMaximumPressure: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "pressure_maximum"),
+			"This gauge represents the maximum pressure band in the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryMemoryAddOperations: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "add_operations_total"),
+			"This counter represents the number of operations adding memory to the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryMemoryRemoveOperations: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "remove_operations_total"),
+			"This counter represents the number of operations removing memory from the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryMinimumPressure: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "pressure_minimum"),
+			"This gauge represents the minimum pressure band in the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryPhysicalMemory: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "physical"),
+			"This gauge represents the current amount of memory in MB assigned to the VM.",
+			[]string{"vm"},
+			nil,
+		),
+		VMMemoryRemovedMemory: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, buildSubsystemName("vm_memory"), "removed_total"),
+			"This counter represents memory in MB removed from the VM",
+			[]string{"vm"},
+			nil,
+		),
 	}, nil
 }
 
@@ -616,6 +717,11 @@ func (c *HyperVCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metri
 
 	if desc, err := c.collectVmProcessor(ch); err != nil {
 		log.Error("failed collecting hyperV processor metrics:", desc, err)
+		return err
+	}
+
+	if desc, err := c.collectHostLPUsage(ch); err != nil {
+		log.Error("failed collecting hyperV host logical processors metrics:", desc, err)
 		return err
 	}
 
@@ -646,6 +752,11 @@ func (c *HyperVCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metri
 
 	if desc, err := c.collectVmNetwork(ch); err != nil {
 		log.Error("failed collecting hyperV virtual network metrics:", desc, err)
+		return err
+	}
+
+	if desc, err := c.collectVmMemory(ch); err != nil {
+		log.Error("failed collecting hyperV virtual memory metrics:", desc, err)
 		return err
 	}
 
@@ -912,6 +1023,59 @@ func (c *HyperVCollector) collectVmProcessor(ch chan<- prometheus.Metric) (*prom
 			c.VirtualProcessors,
 			prometheus.GaugeValue,
 			float64(obj.VirtualProcessors),
+		)
+
+	}
+
+	return nil, nil
+}
+
+// Win32_PerfRawData_HvStats_HyperVHypervisorLogicalProcessor ...
+type Win32_PerfRawData_HvStats_HyperVHypervisorLogicalProcessor struct {
+	Name                     string
+	PercentGuestRunTime      uint64
+	PercentHypervisorRunTime uint64
+	PercentTotalRunTime      uint
+}
+
+func (c *HyperVCollector) collectHostLPUsage(ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
+	var dst []Win32_PerfRawData_HvStats_HyperVHypervisorLogicalProcessor
+	q := queryAll(&dst)
+	if err := wmi.Query(q, &dst); err != nil {
+		return nil, err
+	}
+
+	for _, obj := range dst {
+		if strings.Contains(obj.Name, "_Total") {
+			continue
+		}
+		// The name format is Hv LP <core id>
+		parts := strings.Split(obj.Name, " ")
+		if len(parts) != 3 {
+			log.Warnf("Unexpected format of Name in collectHostLPUsage: %q", obj.Name)
+			continue
+		}
+		coreId := parts[2]
+
+		ch <- prometheus.MustNewConstMetric(
+			c.HostLPGuestRunTimePercent,
+			prometheus.GaugeValue,
+			float64(obj.PercentGuestRunTime),
+			coreId,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.HostLPHypervisorRunTimePercent,
+			prometheus.GaugeValue,
+			float64(obj.PercentHypervisorRunTime),
+			coreId,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.HostLPTotalRunTimePercent,
+			prometheus.GaugeValue,
+			float64(obj.PercentTotalRunTime),
+			coreId,
 		)
 
 	}
@@ -1425,6 +1589,107 @@ func (c *HyperVCollector) collectVmNetwork(ch chan<- prometheus.Metric) (*promet
 			c.VMNetworkPacketsSent,
 			prometheus.CounterValue,
 			float64(obj.PacketsSentPersec),
+			obj.Name,
+		)
+	}
+
+	return nil, nil
+}
+
+// Win32_PerfRawData_BalancerStats_HyperVDynamicMemoryVM ...
+type Win32_PerfRawData_BalancerStats_HyperVDynamicMemoryVM struct {
+	Name                       string
+	AddedMemory                uint64
+	AveragePressure            uint64
+	CurrentPressure            uint64
+	GuestVisiblePhysicalMemory uint64
+	MaximumPressure            uint64
+	MemoryAddOperations        uint64
+	MemoryRemoveOperations     uint64
+	MinimumPressure            uint64
+	PhysicalMemory             uint64
+	RemovedMemory              uint64
+}
+
+func (c *HyperVCollector) collectVmMemory(ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
+	var dst []Win32_PerfRawData_BalancerStats_HyperVDynamicMemoryVM
+	q := queryAll(&dst)
+	if err := wmi.Query(q, &dst); err != nil {
+		return nil, err
+	}
+
+	for _, obj := range dst {
+		if strings.Contains(obj.Name, "_Total") {
+			continue
+		}
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryAddedMemory,
+			prometheus.CounterValue,
+			float64(obj.AddedMemory),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryAveragePressure,
+			prometheus.GaugeValue,
+			float64(obj.AveragePressure),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryCurrentPressure,
+			prometheus.GaugeValue,
+			float64(obj.CurrentPressure),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryGuestVisiblePhysicalMemory,
+			prometheus.GaugeValue,
+			float64(obj.GuestVisiblePhysicalMemory),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryMaximumPressure,
+			prometheus.GaugeValue,
+			float64(obj.MaximumPressure),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryMemoryAddOperations,
+			prometheus.CounterValue,
+			float64(obj.MemoryAddOperations),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryMemoryRemoveOperations,
+			prometheus.CounterValue,
+			float64(obj.MemoryRemoveOperations),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryMinimumPressure,
+			prometheus.GaugeValue,
+			float64(obj.MinimumPressure),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryPhysicalMemory,
+			prometheus.GaugeValue,
+			float64(obj.PhysicalMemory),
+			obj.Name,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.VMMemoryRemovedMemory,
+			prometheus.CounterValue,
+			float64(obj.RemovedMemory),
 			obj.Name,
 		)
 	}

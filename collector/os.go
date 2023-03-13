@@ -52,7 +52,7 @@ func NewOSCollector() (Collector, error) {
 		OSInformation: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "info"),
 			"OperatingSystem.Caption, OperatingSystem.Version",
-			[]string{"product", "version"},
+			[]string{"product", "version", "major_version", "minor_version", "build_number"},
 			nil,
 		),
 		PagingLimitBytes: prometheus.NewDesc(
@@ -179,11 +179,7 @@ func (c *OSCollector) collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) (
 	if err != nil {
 		return nil, err
 	}
-	pagingFiles, _, err := memManKey.GetStringsValue("ExistingPageFiles")
-	if err != nil {
-		return nil, err
-	}
-
+	pagingFiles, _, pagingErr := memManKey.GetStringsValue("ExistingPageFiles")
 	// Get build number and product name from registry
 	ntKey, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
 	defer ntKey.Close()
@@ -206,10 +202,12 @@ func (c *OSCollector) collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) (
 	for _, pagingFile := range pagingFiles {
 		fileString := strings.ReplaceAll(pagingFile, `\??\`, "")
 		file, err := os.Stat(fileString)
+		// For unknown reasons, Windows doesn't always create a page file. Continue collection rather than aborting.
 		if err != nil {
-			return nil, err
+			log.Debugf("Failed to read page file (reason: %s): %s\n", err, fileString)
+		} else {
+			fsipf += float64(file.Size())
 		}
-		fsipf += float64(file.Size())
 	}
 
 	gpi, err := psapi.GetPerformanceInfo()
@@ -240,6 +238,9 @@ func (c *OSCollector) collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) (
 		1.0,
 		fmt.Sprintf("Microsoft %s", pn), // Caption
 		fmt.Sprintf("%d.%d.%s", nwgi.VersionMajor, nwgi.VersionMinor, bn), // Version
+		fmt.Sprintf("%d", nwgi.VersionMajor),                              // Major Version
+		fmt.Sprintf("%d", nwgi.VersionMinor),                              // Minor Version
+		bn,                                                                // Build number
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -261,12 +262,21 @@ func (c *OSCollector) collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) (
 		timezoneName,
 	)
 
-	ch <- prometheus.MustNewConstMetric(
-		c.PagingFreeBytes,
-		prometheus.GaugeValue,
-		pfb,
-	)
+	if pagingErr == nil {
+		ch <- prometheus.MustNewConstMetric(
+			c.PagingFreeBytes,
+			prometheus.GaugeValue,
+			pfb,
+		)
 
+		ch <- prometheus.MustNewConstMetric(
+			c.PagingLimitBytes,
+			prometheus.GaugeValue,
+			fsipf,
+		)
+	} else {
+		log.Debugln("Could not find HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management key. windows_os_paging_free_bytes and windows_os_paging_limit_bytes will be omitted.")
+	}
 	ch <- prometheus.MustNewConstMetric(
 		c.VirtualMemoryFreeBytes,
 		prometheus.GaugeValue,
@@ -298,12 +308,6 @@ func (c *OSCollector) collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) (
 		c.Users,
 		prometheus.GaugeValue,
 		float64(nwgi.LoggedOnUsers),
-	)
-
-	ch <- prometheus.MustNewConstMetric(
-		c.PagingLimitBytes,
-		prometheus.GaugeValue,
-		fsipf,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
