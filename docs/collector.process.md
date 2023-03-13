@@ -1,6 +1,6 @@
-# process collector
+# Process collector
 
-The process collector exposes metrics about processes
+The process collector exposes metrics about processes.
 
 |||
 -|-
@@ -24,18 +24,33 @@ match blacklist to be included. Recommended to keep down number of returned
 metrics.
 
 ### Example
-To match all firefox processes: `--collector.process.whitelist="firefox.+"`.
+To match all firefox processes: `--collector.process.whitelist="firefox.*"`.
 Note that multiple processes with the same name will be disambiguated by
 Windows by adding a number suffix, such as `firefox#2`. Your [regexp](https://en.wikipedia.org/wiki/Regular_expression) must take
 these suffixes into consideration.
 
-:warning: The regexp is case-sensitive, so `--collector.process.whitelist="FIREFOX.+"` will **NOT** match a process named `firefox` . 
+:warning: The regexp is case-sensitive, so `--collector.process.whitelist="FIREFOX.*"` will **NOT** match a process named `firefox` . 
 
 To specify multiple names, use the pipe `|` character:
 ```
---collector.process.whitelist="firefox.+|FIREFOX.+|chrome.+"
+--collector.process.whitelist="(firefox|FIREFOX|chrome).*"
 ```
 This will match all processes named `firefox`, `FIREFOX` or `chrome` .
+
+## IIS Worker processes
+
+The process collector also queries the `root\\WebAdministration` WMI namespace to check for running IIS workers. If it successfully retrieves a list from this namespace, it will append the name of the worker's application pool to the corresponding process. Whitelist/blacklist matching occurs before this name is appended, so you don't have to take this name in consideration when writing your expression.
+
+Note that this specific feature **only works** if the [IIS Management Scripts and Tools](https://learn.microsoft.com/en-us/iis/manage/scripting/managing-sites-with-the-iis-wmi-provider) are installed. If they are not installed then all worker processes return as just `w3wp`.
+
+### Example
+
+Given an IIS server with two websites called "Prometheus.io" and "Example.com" running under the application pools "Public website" and "Test", the process names returned will look as follows:
+
+```
+w3wp_Public website
+w3wp_Test
+```
 
 ## Metrics
 
