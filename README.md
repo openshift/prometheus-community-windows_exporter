@@ -51,10 +51,12 @@ Name     | Description | Enabled by default
 [smtp](docs/collector.smtp.md) | IIS SMTP Server |
 [system](docs/collector.system.md) | System calls | &#10003;
 [tcp](docs/collector.tcp.md) | TCP connections |
+[teradici_pcoip](docs/collector.teradici_pcoip.md) | [Teradici PCoIP](https://www.teradici.com/web-help/pcoip_wmi_specs/) session metrics |
 [time](docs/collector.time.md) | Windows Time Service |
 [thermalzone](docs/collector.thermalzone.md) | Thermal information
 [terminal_services](docs/collector.terminal_services.md) | Terminal services (RDS)
 [textfile](docs/collector.textfile.md) | Read prometheus metrics from a text file | &#10003;
+[vmware_blast](docs/collector.vmware_blast.md) | VMware Blast session metrics |
 [vmware](docs/collector.vmware.md) | Performance counters installed by the Vmware Guest agent |
 
 See the linked documentation on each collector for more information on reported metrics, configuration settings and usage examples.
@@ -80,7 +82,7 @@ windows_exporter accepts flags to configure certain behaviours. The ones configu
 
 Flag     | Description | Default value
 ---------|-------------|--------------------
-`--telemetry.addr` | host:port for exporter. | `:9182`
+`--web.listen-address` | host:port for exporter. | `:9182`
 `--telemetry.path` | URL path for surfacing collected metrics. | `/metrics`
 `--telemetry.max-requests` | Maximum number of concurrent requests. 0 to disable. | `5`
 `--collectors.enabled` | Comma-separated list of collectors to use. Use `[defaults]` as a placeholder which gets expanded containing all the collectors enabled by default." | `[defaults]`
@@ -162,7 +164,7 @@ This enables the additional process and container collectors on top of the defau
 
 ### Using a configuration file
 
-YAML configuration files can be specified with the `--config.file` flag. E.G. `.\windows_exporter.exe --config.file=config.yml`
+YAML configuration files can be specified with the `--config.file` flag. e.g. `.\windows_exporter.exe --config.file=config.yml`. If you are using the absolute path, make sure to quote the path, e.g. `.\windows_exporter.exe --config.file="C:\Program Files\windows_exporter\config.yml"`
 
 ```yaml
 collectors:

@@ -20,17 +20,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StackExchange/wmi"
 	"github.com/prometheus-community/windows_exporter/collector"
 	"github.com/prometheus-community/windows_exporter/config"
+	"github.com/yusufpapurcu/wmi"
 
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
 	webflag "github.com/prometheus/exporter-toolkit/web/kingpinflag"
-	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 type windowsCollector struct {
@@ -269,6 +269,10 @@ func main() {
 			"telemetry.path",
 			"URL path for surfacing collected metrics.",
 		).Default("/metrics").String()
+		disableExporterMetrics = kingpin.Flag(
+			"web.disable-exporter-metrics",
+			"Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).",
+		).Bool()
 		maxRequests = kingpin.Flag(
 			"telemetry.max-requests",
 			"Maximum number of concurrent requests. 0 to disable.",
@@ -347,7 +351,8 @@ func main() {
 	log.Infof("Enabled collectors: %v", strings.Join(keys(collectors), ", "))
 
 	h := &metricsHandler{
-		timeoutMargin: *timeoutMargin,
+		timeoutMargin:          *timeoutMargin,
+		includeExporterMetrics: *disableExporterMetrics,
 		collectorFactory: func(timeout time.Duration, requestedCollectors []string) (error, *windowsCollector) {
 			filteredCollectors := make(map[string]collector.Collector)
 			// scrape all enabled collectors if no collector is requested
@@ -385,16 +390,32 @@ func main() {
 			http.Error(w, fmt.Sprintf("error encoding JSON: %s", err), http.StatusInternalServerError)
 		}
 	})
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`<html>
-<head><title>windows_exporter</title></head>
-<body>
-<h1>windows_exporter</h1>
-<p><a href="` + *metricsPath + `">Metrics</a></p>
-<p><i>` + version.Info() + `</i></p>
-</body>
-</html>`))
-	})
+	if *metricsPath != "/" && *metricsPath != "" {
+		landingConfig := web.LandingConfig{
+			Name:        "Windows Exporter",
+			Description: "Prometheus Exporter for Windows servers",
+			Version:     version.Info(),
+			Links: []web.LandingLinks{
+				{
+					Address: *metricsPath,
+					Text:    "Metrics",
+				},
+				{
+					Address: "/health",
+					Text:    "Health Check",
+				},
+				{
+					Address: "/version",
+					Text:    "Version Info",
+				},
+			},
+		}
+		landingPage, err := web.NewLandingPage(landingConfig)
+		if err != nil {
+			log.Fatalf("failed to generate landing page: %v", err)
+		}
+		http.Handle("/", landingPage)
+	}
 
 	log.Infoln("Starting windows_exporter", version.Info())
 	log.Infoln("Build context", version.BuildContext())
@@ -450,8 +471,9 @@ func withConcurrencyLimit(n int, next http.HandlerFunc) http.HandlerFunc {
 }
 
 type metricsHandler struct {
-	timeoutMargin    float64
-	collectorFactory func(timeout time.Duration, requestedCollectors []string) (error, *windowsCollector)
+	timeoutMargin          float64
+	includeExporterMetrics bool
+	collectorFactory       func(timeout time.Duration, requestedCollectors []string) (error, *windowsCollector)
 }
 
 func (mh *metricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -479,11 +501,13 @@ func (mh *metricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reg.MustRegister(wc)
-	reg.MustRegister(
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		collectors.NewGoCollector(),
-		version.NewCollector("windows_exporter"),
-	)
+	if !mh.includeExporterMetrics {
+		reg.MustRegister(
+			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+			collectors.NewGoCollector(),
+			version.NewCollector("windows_exporter"),
+		)
+	}
 
 	h := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 	h.ServeHTTP(w, r)

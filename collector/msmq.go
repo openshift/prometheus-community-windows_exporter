@@ -6,10 +6,10 @@ package collector
 import (
 	"strings"
 
-	"github.com/StackExchange/wmi"
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus-community/windows_exporter/log"
 	"github.com/prometheus/client_golang/prometheus"
-	"gopkg.in/alecthomas/kingpin.v2"
+	"github.com/yusufpapurcu/wmi"
 )
 
 func init() {
