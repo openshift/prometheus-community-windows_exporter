@@ -1,16 +1,15 @@
 package collector
 
 import (
-	"github.com/prometheus-community/windows_exporter/log"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/yusufpapurcu/wmi"
 )
 
-func init() {
-	registerCollector("fsrmquota", newFSRMQuotaCollector)
-}
-
 type FSRMQuotaCollector struct {
+	logger log.Logger
+
 	QuotasCount *prometheus.Desc
 	Path        *prometheus.Desc
 	PeakUsage   *prometheus.Desc
@@ -24,9 +23,11 @@ type FSRMQuotaCollector struct {
 	Template        *prometheus.Desc
 }
 
-func newFSRMQuotaCollector() (Collector, error) {
+func newFSRMQuotaCollector(logger log.Logger) (Collector, error) {
 	const subsystem = "fsrmquota"
 	return &FSRMQuotaCollector{
+		logger: log.With(logger, "collector", subsystem),
+
 		QuotasCount: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "count"),
 			"Number of Quotas",
@@ -88,7 +89,7 @@ func newFSRMQuotaCollector() (Collector, error) {
 // to the provided prometheus Metric channel.
 func (c *FSRMQuotaCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	if desc, err := c.collect(ch); err != nil {
-		log.Error("failed collecting fsrmquota metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting fsrmquota metrics", "desc", desc, "err", err)
 		return err
 	}
 	return nil
@@ -113,7 +114,7 @@ type MSFT_FSRMQuota struct {
 
 func (c *FSRMQuotaCollector) collect(ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
 	var dst []MSFT_FSRMQuota
-	q := queryAll(&dst)
+	q := queryAll(&dst, c.logger)
 
 	var count int
 

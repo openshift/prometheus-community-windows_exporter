@@ -5,24 +5,21 @@ package collector
 
 import (
 	"github.com/alecthomas/kingpin/v2"
-	"github.com/prometheus-community/windows_exporter/log"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var dfsrEnabledCollectors = kingpin.Flag("collectors.dfsr.sources-enabled", "Comma-seperated list of DFSR Perflib sources to use.").Default("connection,folder,volume").String()
+const (
+	FlagDfsrEnabledCollectors = "collectors.dfsr.sources-enabled"
+)
 
-func init() {
-	// Perflib sources are dynamic, depending on the enabled child collectors
-	var perflibDependencies []string
-	for _, source := range expandEnabledChildCollectors(*dfsrEnabledCollectors) {
-		perflibDependencies = append(perflibDependencies, dfsrGetPerfObjectName(source))
-	}
-
-	registerCollector("dfsr", NewDFSRCollector, perflibDependencies...)
-}
+var dfsrEnabledCollectors *string
 
 // DFSRCollector contains the metric and state data of the DFSR collectors.
 type DFSRCollector struct {
+	logger log.Logger
+
 	// Connection source
 	ConnectionBandwidthSavingsUsingDFSReplicationTotal *prometheus.Desc
 	ConnectionBytesReceivedTotal                       *prometheus.Desc
@@ -92,10 +89,16 @@ func dfsrGetPerfObjectName(collector string) string {
 	return (prefix + suffix)
 }
 
-// NewDFSRCollector is registered
-func NewDFSRCollector() (Collector, error) {
-	log.Info("dfsr collector is in an experimental state! Metrics for this collector have not been tested.")
+// newDFSRCollectorFlags is registered
+func newDFSRCollectorFlags(app *kingpin.Application) {
+	dfsrEnabledCollectors = app.Flag(FlagDfsrEnabledCollectors, "Comma-seperated list of DFSR Perflib sources to use.").Default("connection,folder,volume").String()
+}
+
+// newDFSRCollector is registered
+func newDFSRCollector(logger log.Logger) (Collector, error) {
 	const subsystem = "dfsr"
+	logger = log.With(logger, "collector", subsystem)
+	_ = level.Info(logger).Log("msg", "dfsr collector is in an experimental state! Metrics for this collector have not been tested.")
 
 	enabled := expandEnabledChildCollectors(*dfsrEnabledCollectors)
 	perfCounters := make([]string, 0, len(enabled))
@@ -105,6 +108,8 @@ func NewDFSRCollector() (Collector, error) {
 	addPerfCounterDependencies(subsystem, perfCounters)
 
 	dfsrCollector := DFSRCollector{
+		logger: logger,
+
 		// Connection
 		ConnectionBandwidthSavingsUsingDFSReplicationTotal: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "connection_bandwidth_savings_using_dfs_replication_bytes_total"),
@@ -448,7 +453,7 @@ type PerflibDFSRConnection struct {
 
 func (c *DFSRCollector) collectConnection(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	var dst []PerflibDFSRConnection
-	if err := unmarshalObject(ctx.perfObjects["DFS Replication Connections"], &dst); err != nil {
+	if err := unmarshalObject(ctx.perfObjects["DFS Replication Connections"], &dst, c.logger); err != nil {
 		return err
 	}
 
@@ -555,7 +560,7 @@ type PerflibDFSRFolder struct {
 
 func (c *DFSRCollector) collectFolder(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	var dst []PerflibDFSRFolder
-	if err := unmarshalObject(ctx.perfObjects["DFS Replicated Folders"], &dst); err != nil {
+	if err := unmarshalObject(ctx.perfObjects["DFS Replicated Folders"], &dst, c.logger); err != nil {
 		return err
 	}
 
@@ -765,7 +770,7 @@ type PerflibDFSRVolume struct {
 
 func (c *DFSRCollector) collectVolume(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	var dst []PerflibDFSRVolume
-	if err := unmarshalObject(ctx.perfObjects["DFS Replication Service Volumes"], &dst); err != nil {
+	if err := unmarshalObject(ctx.perfObjects["DFS Replication Service Volumes"], &dst, c.logger); err != nil {
 		return err
 	}
 

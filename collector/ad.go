@@ -6,17 +6,16 @@ package collector
 import (
 	"errors"
 
-	"github.com/prometheus-community/windows_exporter/log"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/yusufpapurcu/wmi"
 )
 
-func init() {
-	registerCollector("ad", NewADCollector)
-}
-
 // A ADCollector is a Prometheus collector for WMI Win32_PerfRawData_DirectoryServices_DirectoryServices metrics
 type ADCollector struct {
+	logger log.Logger
+
 	AddressBookOperationsTotal                          *prometheus.Desc
 	AddressBookClientSessions                           *prometheus.Desc
 	ApproximateHighestDistinguishedNameTag              *prometheus.Desc
@@ -60,6 +59,7 @@ type ADCollector struct {
 	LdapSearchesTotal                                   *prometheus.Desc
 	LdapUdpOperationsTotal                              *prometheus.Desc
 	LdapWritesTotal                                     *prometheus.Desc
+	LdapClientSessions                                  *prometheus.Desc
 	LinkValuesCleanedTotal                              *prometheus.Desc
 	PhantomObjectsCleanedTotal                          *prometheus.Desc
 	PhantomObjectsVisitedTotal                          *prometheus.Desc
@@ -80,10 +80,12 @@ type ADCollector struct {
 	TombstonedObjectsVisitedTotal                       *prometheus.Desc
 }
 
-// NewADCollector ...
-func NewADCollector() (Collector, error) {
+// newADCollector ...
+func newADCollector(logger log.Logger) (Collector, error) {
 	const subsystem = "ad"
 	return &ADCollector{
+		logger: log.With(logger, "collector", subsystem),
+
 		AddressBookOperationsTotal: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "address_book_operations_total"),
 			"",
@@ -342,6 +344,12 @@ func NewADCollector() (Collector, error) {
 			nil,
 			nil,
 		),
+		LdapClientSessions: prometheus.NewDesc(
+			prometheus.BuildFQName(Namespace, subsystem, "ldap_client_sessions"),
+			"This is the number of sessions opened by LDAP clients at the time the data is taken. This is helpful in determining LDAP client activity and if the DC is able to handle the load. Of course, spikes during normal periods of authentication — such as first thing in the morning — are not necessarily a problem, but long sustained periods of high values indicate an overworked DC.",
+			nil,
+			nil,
+		),
 		LinkValuesCleanedTotal: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "link_values_cleaned_total"),
 			"",
@@ -457,7 +465,7 @@ func NewADCollector() (Collector, error) {
 // to the provided prometheus Metric channel.
 func (c *ADCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	if desc, err := c.collect(ch); err != nil {
-		log.Error("failed collecting ad metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting ad metrics", "desc", desc, "err", err)
 		return err
 	}
 	return nil
@@ -617,7 +625,7 @@ type Win32_PerfRawData_DirectoryServices_DirectoryServices struct {
 
 func (c *ADCollector) collect(ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
 	var dst []Win32_PerfRawData_DirectoryServices_DirectoryServices
-	q := queryAll(&dst)
+	q := queryAll(&dst, c.logger)
 	if err := wmi.Query(q, &dst); err != nil {
 		return nil, err
 	}
@@ -1188,6 +1196,11 @@ func (c *ADCollector) collect(ch chan<- prometheus.Metric) (*prometheus.Desc, er
 		c.LdapWritesTotal,
 		prometheus.CounterValue,
 		float64(dst[0].LDAPWritesPersec),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.LdapClientSessions,
+		prometheus.GaugeValue,
+		float64(dst[0].LDAPClientSessions),
 	)
 
 	ch <- prometheus.MustNewConstMetric(

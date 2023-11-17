@@ -4,24 +4,46 @@
 package collector
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
-	"github.com/prometheus-community/windows_exporter/log"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sys/windows/registry"
 )
 
-func init() {
-	registerCollector("iis", NewIISCollector, "Web Service", "APP_POOL_WAS", "Web Service Cache", "W3SVC_W3WP")
-}
+const (
+	FlagIISSiteOldExclude = "collector.iis.site-blacklist"
+	FlagIISSiteOldInclude = "collector.iis.site-whitelist"
+	FlagIISAppOldExclude  = "collector.iis.app-blacklist"
+	FlagIISAppOldInclude  = "collector.iis.app-whitelist"
+
+	FlagIISSiteExclude = "collector.iis.site-exclude"
+	FlagIISSiteInclude = "collector.iis.site-include"
+	FlagIISAppExclude  = "collector.iis.app-exclude"
+	FlagIISAppInclude  = "collector.iis.app-include"
+)
 
 var (
-	siteWhitelist = kingpin.Flag("collector.iis.site-whitelist", "Regexp of sites to whitelist. Site name must both match whitelist and not match blacklist to be included.").Default(".+").String()
-	siteBlacklist = kingpin.Flag("collector.iis.site-blacklist", "Regexp of sites to blacklist. Site name must both match whitelist and not match blacklist to be included.").String()
-	appWhitelist  = kingpin.Flag("collector.iis.app-whitelist", "Regexp of apps to whitelist. App name must both match whitelist and not match blacklist to be included.").Default(".+").String()
-	appBlacklist  = kingpin.Flag("collector.iis.app-blacklist", "Regexp of apps to blacklist. App name must both match whitelist and not match blacklist to be included.").String()
+	oldSiteInclude *string
+	oldSiteExclude *string
+	oldAppInclude  *string
+	oldAppExclude  *string
+
+	siteInclude *string
+	siteExclude *string
+	appInclude  *string
+	appExclude  *string
+
+	siteIncludeSet bool
+	siteExcludeSet bool
+	appIncludeSet  bool
+	appExcludeSet  bool
 )
 
 type simple_version struct {
@@ -29,31 +51,31 @@ type simple_version struct {
 	minor uint64
 }
 
-func getIISVersion() simple_version {
+func getIISVersion(logger log.Logger) simple_version {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\InetStp\`, registry.QUERY_VALUE)
 	if err != nil {
-		log.Warn("Couldn't open registry to determine IIS version:", err)
+		_ = level.Warn(logger).Log("msg", "Couldn't open registry to determine IIS version", "err", err)
 		return simple_version{}
 	}
 	defer func() {
 		err = k.Close()
 		if err != nil {
-			log.Warnf("Failed to close registry key: %v", err)
+			_ = level.Warn(logger).Log("msg", fmt.Sprintf("Failed to close registry key"), "err", err)
 		}
 	}()
 
 	major, _, err := k.GetIntegerValue("MajorVersion")
 	if err != nil {
-		log.Warn("Couldn't open registry to determine IIS version:", err)
+		_ = level.Warn(logger).Log("msg", "Couldn't open registry to determine IIS version", "err", err)
 		return simple_version{}
 	}
 	minor, _, err := k.GetIntegerValue("MinorVersion")
 	if err != nil {
-		log.Warn("Couldn't open registry to determine IIS version:", err)
+		_ = level.Warn(logger).Log("msg", "Couldn't open registry to determine IIS version", "err", err)
 		return simple_version{}
 	}
 
-	log.Debugf("Detected IIS %d.%d\n", major, minor)
+	_ = level.Debug(logger).Log("msg", fmt.Sprintf("Detected IIS %d.%d\n", major, minor))
 
 	return simple_version{
 		major: major,
@@ -62,6 +84,8 @@ func getIISVersion() simple_version {
 }
 
 type IISCollector struct {
+	logger log.Logger
+
 	// Web Service
 	CurrentAnonymousUsers               *prometheus.Desc
 	CurrentBlockedAsyncIORequests       *prometheus.Desc
@@ -86,8 +110,8 @@ type IISCollector struct {
 	TotalNotFoundErrors                 *prometheus.Desc
 	TotalRejectedAsyncIORequests        *prometheus.Desc
 
-	siteWhitelistPattern *regexp.Regexp
-	siteBlacklistPattern *regexp.Regexp
+	siteIncludePattern *regexp.Regexp
+	siteExcludePattern *regexp.Regexp
 
 	// APP_POOL_WAS
 	CurrentApplicationPoolState        *prometheus.Desc
@@ -189,22 +213,97 @@ type IISCollector struct {
 	ServiceCache_OutputCacheFlushedItemsTotal  *prometheus.Desc
 	ServiceCache_OutputCacheFlushesTotal       *prometheus.Desc
 
-	appWhitelistPattern *regexp.Regexp
-	appBlacklistPattern *regexp.Regexp
+	appIncludePattern *regexp.Regexp
+	appExcludePattern *regexp.Regexp
 
 	iis_version simple_version
 }
 
-func NewIISCollector() (Collector, error) {
+func newIISCollectorFlags(app *kingpin.Application) {
+	oldSiteInclude = app.Flag(FlagIISSiteOldInclude, "DEPRECATED: Use --collector.iis.site-include").Hidden().String()
+	oldSiteExclude = app.Flag(FlagIISSiteOldExclude, "DEPRECATED: Use --collector.iis.site-exclude").Hidden().String()
+	oldAppInclude = app.Flag(FlagIISAppOldInclude, "DEPRECATED: Use --collector.iis.app-include").Hidden().String()
+	oldAppExclude = app.Flag(FlagIISAppOldExclude, "DEPRECATED: Use --collector.iis.app-exclude").Hidden().String()
+
+	siteInclude = app.Flag(
+		FlagIISSiteInclude,
+		"Regexp of sites to include. Site name must both match include and not match exclude to be included.",
+	).Default(".+").PreAction(func(c *kingpin.ParseContext) error {
+		siteIncludeSet = true
+		return nil
+	}).String()
+
+	siteExclude = app.Flag(
+		FlagIISSiteExclude,
+		"Regexp of sites to exclude. Site name must both match include and not match exclude to be included.",
+	).Default("").PreAction(func(c *kingpin.ParseContext) error {
+		siteExcludeSet = true
+		return nil
+	}).String()
+
+	appInclude = app.Flag(
+		FlagIISAppInclude,
+		"Regexp of apps to include. App name must both match include and not match exclude to be included.",
+	).Default(".+").PreAction(func(c *kingpin.ParseContext) error {
+		appIncludeSet = true
+		return nil
+	}).String()
+
+	appExclude = app.Flag(
+		FlagIISAppExclude,
+		"Regexp of apps to include. App name must both match include and not match exclude to be included.",
+	).Default("").PreAction(func(c *kingpin.ParseContext) error {
+		siteExcludeSet = true
+		return nil
+	}).String()
+}
+
+func newIISCollector(logger log.Logger) (Collector, error) {
 	const subsystem = "iis"
+	logger = log.With(logger, "collector", subsystem)
+
+	if *oldSiteExclude != "" {
+		if !siteExcludeSet {
+			_ = level.Warn(logger).Log("msg", "--collector.iis.site-blacklist is DEPRECATED and will be removed in a future release, use --collector.iis.site-exclude")
+			*siteExclude = *oldSiteExclude
+		} else {
+			return nil, errors.New("--collector.iis.site-blacklist and --collector.iis.site-exclude are mutually exclusive")
+		}
+	}
+	if *oldSiteInclude != "" {
+		if !siteIncludeSet {
+			_ = level.Warn(logger).Log("msg", "--collector.iis.site-whitelist is DEPRECATED and will be removed in a future release, use --collector.iis.site-include")
+			*siteInclude = *oldSiteInclude
+		} else {
+			return nil, errors.New("--collector.iis.site-whitelist and --collector.iis.site-include are mutually exclusive")
+		}
+	}
+
+	if *oldAppExclude != "" {
+		if !appExcludeSet {
+			_ = level.Warn(logger).Log("msg", "--collector.iis.app-blacklist is DEPRECATED and will be removed in a future release, use --collector.iis.app-exclude")
+			*appExclude = *oldAppExclude
+		} else {
+			return nil, errors.New("--collector.iis.app-blacklist and --collector.iis.app-exclude are mutually exclusive")
+		}
+	}
+	if *oldAppInclude != "" {
+		if !appIncludeSet {
+			_ = level.Warn(logger).Log("msg", "--collector.iis.app-whitelist is DEPRECATED and will be removed in a future release, use --collector.iis.app-include")
+			*appInclude = *oldAppInclude
+		} else {
+			return nil, errors.New("--collector.iis.app-whitelist and --collector.iis.app-include are mutually exclusive")
+		}
+	}
 
 	return &IISCollector{
-		iis_version: getIISVersion(),
+		logger:      logger,
+		iis_version: getIISVersion(logger),
 
-		siteWhitelistPattern: regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *siteWhitelist)),
-		siteBlacklistPattern: regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *siteBlacklist)),
-		appWhitelistPattern:  regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *appWhitelist)),
-		appBlacklistPattern:  regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *appBlacklist)),
+		siteIncludePattern: regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *siteInclude)),
+		siteExcludePattern: regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *siteExclude)),
+		appIncludePattern:  regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *appInclude)),
+		appExcludePattern:  regexp.MustCompile(fmt.Sprintf("^(?:%s)$", *appExclude)),
 
 		// Web Service
 		CurrentAnonymousUsers: prometheus.NewDesc(
@@ -821,22 +920,22 @@ func NewIISCollector() (Collector, error) {
 // to the provided prometheus Metric channel.
 func (c *IISCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	if desc, err := c.collectWebService(ctx, ch); err != nil {
-		log.Error("failed collecting iis metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting iis metrics", "desc", desc, "err", err)
 		return err
 	}
 
 	if desc, err := c.collectAPP_POOL_WAS(ctx, ch); err != nil {
-		log.Error("failed collecting iis metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting iis metrics", "desc", desc, "err", err)
 		return err
 	}
 
 	if desc, err := c.collectW3SVC_W3WP(ctx, ch); err != nil {
-		log.Error("failed collecting iis metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting iis metrics", "desc", desc, "err", err)
 		return err
 	}
 
 	if desc, err := c.collectWebServiceCache(ctx, ch); err != nil {
-		log.Error("failed collecting iis metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting iis metrics", "desc", desc, "err", err)
 		return err
 	}
 
@@ -886,14 +985,63 @@ type perflibWebService struct {
 	TotalUnlockRequests                 float64 `perflib:"Total Unlock Requests"`
 }
 
+// Fulfill the hasGetIISName interface
+func (p perflibWebService) getIISName() string {
+	return p.Name
+}
+
+// Fulfill the hasGetIISName interface
+func (p perflibAPP_POOL_WAS) getIISName() string {
+	return p.Name
+}
+
+// Fulfill the hasGetIISName interface
+func (p perflibW3SVC_W3WP) getIISName() string {
+	return p.Name
+}
+
+// Fulfill the hasGetIISName interface
+func (p perflibW3SVC_W3WP_IIS8) getIISName() string {
+	return p.Name
+}
+
+// Required as Golang doesn't allow access to struct fields in generic functions. That restriction may be removed in a future release.
+type hasGetIISName interface {
+	getIISName() string
+}
+
+// Deduplicate IIS site names from various IIS perflib objects.
+//
+// E.G. Given the following list of site names, "Site_B" would be
+// discarded, and "Site_B#2" would be kept and presented as "Site_B" in the
+// collector metrics.
+// [ "Site_A", "Site_B", "Site_C", "Site_B#2" ]
+func dedupIISNames[V hasGetIISName](services []V) map[string]V {
+	// Ensure IIS entry with the highest suffix occurs last
+	sort.SliceStable(services, func(i, j int) bool {
+		return services[i].getIISName() < services[j].getIISName()
+	})
+
+	var webServiceDeDuplicated = make(map[string]V)
+
+	// Use map to deduplicate IIS entries
+	for _, entry := range services {
+		name := strings.Split(entry.getIISName(), "#")[0]
+		webServiceDeDuplicated[name] = entry
+	}
+	return webServiceDeDuplicated
+}
+
 func (c *IISCollector) collectWebService(ctx *ScrapeContext, ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
-	var WebService []perflibWebService
-	if err := unmarshalObject(ctx.perfObjects["Web Service"], &WebService); err != nil {
+	var webService []perflibWebService
+	if err := unmarshalObject(ctx.perfObjects["Web Service"], &webService, c.logger); err != nil {
 		return nil, err
 	}
 
-	for _, app := range WebService {
-		if app.Name == "_Total" || c.siteBlacklistPattern.MatchString(app.Name) || !c.siteWhitelistPattern.MatchString(app.Name) {
+	webServiceDeDuplicated := dedupIISNames(webService)
+
+	for name, app := range webServiceDeDuplicated {
+		if name == "_Total" || c.siteExcludePattern.MatchString(name) || !c.siteIncludePattern.MatchString(name) {
 			continue
 		}
 
@@ -901,238 +1049,238 @@ func (c *IISCollector) collectWebService(ctx *ScrapeContext, ch chan<- prometheu
 			c.CurrentAnonymousUsers,
 			prometheus.GaugeValue,
 			app.CurrentAnonymousUsers,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentBlockedAsyncIORequests,
 			prometheus.GaugeValue,
 			app.CurrentBlockedAsyncIORequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentCGIRequests,
 			prometheus.GaugeValue,
 			app.CurrentCGIRequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentConnections,
 			prometheus.GaugeValue,
 			app.CurrentConnections,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentISAPIExtensionRequests,
 			prometheus.GaugeValue,
 			app.CurrentISAPIExtensionRequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentNonAnonymousUsers,
 			prometheus.GaugeValue,
 			app.CurrentNonAnonymousUsers,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.ServiceUptime,
 			prometheus.GaugeValue,
 			app.ServiceUptime,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalBytesReceived,
 			prometheus.CounterValue,
 			app.TotalBytesReceived,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalBytesSent,
 			prometheus.CounterValue,
 			app.TotalBytesSent,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalAnonymousUsers,
 			prometheus.CounterValue,
 			app.TotalAnonymousUsers,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalBlockedAsyncIORequests,
 			prometheus.CounterValue,
 			app.TotalBlockedAsyncIORequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalCGIRequests,
 			prometheus.CounterValue,
 			app.TotalCGIRequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalConnectionAttemptsAllInstances,
 			prometheus.CounterValue,
 			app.TotalConnectionAttemptsAllInstances,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalFilesReceived,
 			prometheus.CounterValue,
 			app.TotalFilesReceived,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalFilesSent,
 			prometheus.CounterValue,
 			app.TotalFilesSent,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalISAPIExtensionRequests,
 			prometheus.CounterValue,
 			app.TotalISAPIExtensionRequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalLockedErrors,
 			prometheus.CounterValue,
 			app.TotalLockedErrors,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalLogonAttempts,
 			prometheus.CounterValue,
 			app.TotalLogonAttempts,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalNonAnonymousUsers,
 			prometheus.CounterValue,
 			app.TotalNonAnonymousUsers,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalNotFoundErrors,
 			prometheus.CounterValue,
 			app.TotalNotFoundErrors,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRejectedAsyncIORequests,
 			prometheus.CounterValue,
 			app.TotalRejectedAsyncIORequests,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalOtherRequests,
-			app.Name,
+			name,
 			"other",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalCopyRequests,
-			app.Name,
+			name,
 			"COPY",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalDeleteRequests,
-			app.Name,
+			name,
 			"DELETE",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalGetRequests,
-			app.Name,
+			name,
 			"GET",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalHeadRequests,
-			app.Name,
+			name,
 			"HEAD",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalLockRequests,
-			app.Name,
+			name,
 			"LOCK",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalMkcolRequests,
-			app.Name,
+			name,
 			"MKCOL",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalMoveRequests,
-			app.Name,
+			name,
 			"MOVE",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalOptionsRequests,
-			app.Name,
+			name,
 			"OPTIONS",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalPostRequests,
-			app.Name,
+			name,
 			"POST",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalPropfindRequests,
-			app.Name,
+			name,
 			"PROPFIND",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalProppatchRequests,
-			app.Name,
+			name,
 			"PROPPATCH",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalPutRequests,
-			app.Name,
+			name,
 			"PUT",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalSearchRequests,
-			app.Name,
+			name,
 			"SEARCH",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalTraceRequests,
-			app.Name,
+			name,
 			"TRACE",
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalRequests,
 			prometheus.CounterValue,
 			app.TotalUnlockRequests,
-			app.Name,
+			name,
 			"UNLOCK",
 		)
 	}
@@ -1172,14 +1320,16 @@ var applicationStates = map[uint32]string{
 
 func (c *IISCollector) collectAPP_POOL_WAS(ctx *ScrapeContext, ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
 	var APP_POOL_WAS []perflibAPP_POOL_WAS
-	if err := unmarshalObject(ctx.perfObjects["APP_POOL_WAS"], &APP_POOL_WAS); err != nil {
+	if err := unmarshalObject(ctx.perfObjects["APP_POOL_WAS"], &APP_POOL_WAS, c.logger); err != nil {
 		return nil, err
 	}
 
-	for _, app := range APP_POOL_WAS {
-		if app.Name == "_Total" ||
-			c.appBlacklistPattern.MatchString(app.Name) ||
-			!c.appWhitelistPattern.MatchString(app.Name) {
+	appPoolDeDuplicated := dedupIISNames(APP_POOL_WAS)
+
+	for name, app := range appPoolDeDuplicated {
+		if name == "_Total" ||
+			c.appExcludePattern.MatchString(name) ||
+			!c.appIncludePattern.MatchString(name) {
 			continue
 		}
 
@@ -1192,7 +1342,7 @@ func (c *IISCollector) collectAPP_POOL_WAS(ctx *ScrapeContext, ch chan<- prometh
 				c.CurrentApplicationPoolState,
 				prometheus.GaugeValue,
 				isCurrentState,
-				app.Name,
+				name,
 				label,
 			)
 		}
@@ -1201,73 +1351,73 @@ func (c *IISCollector) collectAPP_POOL_WAS(ctx *ScrapeContext, ch chan<- prometh
 			c.CurrentApplicationPoolUptime,
 			prometheus.GaugeValue,
 			app.CurrentApplicationPoolUptime,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.CurrentWorkerProcesses,
 			prometheus.GaugeValue,
 			app.CurrentWorkerProcesses,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.MaximumWorkerProcesses,
 			prometheus.GaugeValue,
 			app.MaximumWorkerProcesses,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.RecentWorkerProcessFailures,
 			prometheus.GaugeValue,
 			app.RecentWorkerProcessFailures,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TimeSinceLastWorkerProcessFailure,
 			prometheus.GaugeValue,
 			app.TimeSinceLastWorkerProcessFailure,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalApplicationPoolRecycles,
 			prometheus.CounterValue,
 			app.TotalApplicationPoolRecycles,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalApplicationPoolUptime,
 			prometheus.CounterValue,
 			app.TotalApplicationPoolUptime,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalWorkerProcessesCreated,
 			prometheus.CounterValue,
 			app.TotalWorkerProcessesCreated,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalWorkerProcessFailures,
 			prometheus.CounterValue,
 			app.TotalWorkerProcessFailures,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalWorkerProcessPingFailures,
 			prometheus.CounterValue,
 			app.TotalWorkerProcessPingFailures,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalWorkerProcessShutdownFailures,
 			prometheus.CounterValue,
 			app.TotalWorkerProcessShutdownFailures,
-			app.Name,
+			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			c.TotalWorkerProcessStartupFailures,
 			prometheus.CounterValue,
 			app.TotalWorkerProcessStartupFailures,
-			app.Name,
+			name,
 		)
 	}
 
@@ -1347,17 +1497,24 @@ type perflibW3SVC_W3WP_IIS8 struct {
 
 func (c *IISCollector) collectW3SVC_W3WP(ctx *ScrapeContext, ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
 	var W3SVC_W3WP []perflibW3SVC_W3WP
-	if err := unmarshalObject(ctx.perfObjects["W3SVC_W3WP"], &W3SVC_W3WP); err != nil {
+	if err := unmarshalObject(ctx.perfObjects["W3SVC_W3WP"], &W3SVC_W3WP, c.logger); err != nil {
 		return nil, err
 	}
 
-	for _, app := range W3SVC_W3WP {
+	w3svcW3WPDeduplicated := dedupIISNames(W3SVC_W3WP)
+
+	for w3Name, app := range w3svcW3WPDeduplicated {
 		// Extract the apppool name from the format <PID>_<NAME>
-		pid := workerProcessNameExtractor.ReplaceAllString(app.Name, "$1")
-		name := workerProcessNameExtractor.ReplaceAllString(app.Name, "$2")
+		pid := workerProcessNameExtractor.ReplaceAllString(w3Name, "$1")
+		name := workerProcessNameExtractor.ReplaceAllString(w3Name, "$2")
 		if name == "" || name == "_Total" ||
-			c.appBlacklistPattern.MatchString(name) ||
-			!c.appWhitelistPattern.MatchString(name) {
+			c.appExcludePattern.MatchString(name) ||
+			!c.appIncludePattern.MatchString(name) {
+			continue
+		}
+
+		// Duplicate instances are suffixed # with an index number. These should be ignored
+		if strings.Contains(app.Name, "#") {
 			continue
 		}
 
@@ -1599,17 +1756,19 @@ func (c *IISCollector) collectW3SVC_W3WP(ctx *ScrapeContext, ch chan<- prometheu
 
 	if c.iis_version.major >= 8 {
 		var W3SVC_W3WP_IIS8 []perflibW3SVC_W3WP_IIS8
-		if err := unmarshalObject(ctx.perfObjects["W3SVC_W3WP"], &W3SVC_W3WP_IIS8); err != nil {
+		if err := unmarshalObject(ctx.perfObjects["W3SVC_W3WP"], &W3SVC_W3WP_IIS8, c.logger); err != nil {
 			return nil, err
 		}
 
-		for _, app := range W3SVC_W3WP_IIS8 {
+		w3svcW3WPIIS8Deduplicated := dedupIISNames(W3SVC_W3WP_IIS8)
+
+		for w3Name, app := range w3svcW3WPIIS8Deduplicated {
 			// Extract the apppool name from the format <PID>_<NAME>
-			pid := workerProcessNameExtractor.ReplaceAllString(app.Name, "$1")
-			name := workerProcessNameExtractor.ReplaceAllString(app.Name, "$2")
+			pid := workerProcessNameExtractor.ReplaceAllString(w3Name, "$1")
+			name := workerProcessNameExtractor.ReplaceAllString(w3Name, "$2")
 			if name == "" || name == "_Total" ||
-				c.appBlacklistPattern.MatchString(name) ||
-				!c.appWhitelistPattern.MatchString(name) {
+				c.appExcludePattern.MatchString(name) ||
+				!c.appIncludePattern.MatchString(name) {
 				continue
 			}
 
@@ -1736,7 +1895,7 @@ type perflibWebServiceCache struct {
 
 func (c *IISCollector) collectWebServiceCache(ctx *ScrapeContext, ch chan<- prometheus.Metric) (*prometheus.Desc, error) {
 	var WebServiceCache []perflibWebServiceCache
-	if err := unmarshalObject(ctx.perfObjects["Web Service Cache"], &WebServiceCache); err != nil {
+	if err := unmarshalObject(ctx.perfObjects["Web Service Cache"], &WebServiceCache, c.logger); err != nil {
 		return nil, err
 	}
 

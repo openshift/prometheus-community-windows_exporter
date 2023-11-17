@@ -7,14 +7,11 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/prometheus-community/windows_exporter/log"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/yusufpapurcu/wmi"
 )
-
-func init() {
-	registerCollector("disk_drive", newDiskDriveInfoCollector)
-}
 
 const (
 	win32DiskQuery = "SELECT DeviceID, Model, Caption, Name, Partitions, Size, Status, Availability FROM WIN32_DiskDrive"
@@ -22,6 +19,8 @@ const (
 
 // A DiskDriveInfoCollector is a Prometheus collector for a few WMI metrics in Win32_DiskDrive
 type DiskDriveInfoCollector struct {
+	logger log.Logger
+
 	DiskInfo     *prometheus.Desc
 	Status       *prometheus.Desc
 	Size         *prometheus.Desc
@@ -29,10 +28,12 @@ type DiskDriveInfoCollector struct {
 	Availability *prometheus.Desc
 }
 
-func newDiskDriveInfoCollector() (Collector, error) {
-	const subsystem = "disk_drive"
+func newDiskDriveInfoCollector(logger log.Logger) (Collector, error) {
+	const subsystem = "diskdrive"
 
 	return &DiskDriveInfoCollector{
+		logger: log.With(logger, "collector", subsystem),
+
 		DiskInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "info"),
 			"General drive information",
@@ -133,7 +134,7 @@ var (
 // Collect sends the metric values for each metric to the provided prometheus Metric channel.
 func (c *DiskDriveInfoCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	if desc, err := c.collect(ch); err != nil {
-		log.Error("failed collecting disk_drive_info metrics:", desc, err)
+		_ = level.Error(c.logger).Log("msg", "failed collecting disk_drive_info metrics", "desc", desc, "err", err)
 		return err
 	}
 	return nil

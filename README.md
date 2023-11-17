@@ -89,6 +89,8 @@ Flag     | Description | Default value
 `--collectors.print` | If true, print available collectors and exit. |
 `--scrape.timeout-margin` | Seconds to subtract from the timeout allowed by the client. Tune to allow for overhead or high loads. | `0.5`
 `--web.config.file` | A [web config][web_config] for setting up TLS and Auth | None
+`--config.file` | [Using a config file](#using-a-configuration-file) from path or URL | None
+`--config.file.insecure-skip-verify` | Skip TLS when loading config file from URL | false
 
 ## Installation
 The latest release can be downloaded from the [releases page](https://github.com/prometheus-community/windows_exporter/releases).
@@ -104,7 +106,7 @@ Name | Description
 `LISTEN_PORT` | The port to bind to. Defaults to 9182.
 `METRICS_PATH` | The path at which to serve metrics. Defaults to `/metrics`
 `TEXTFILE_DIR` | As the `--collector.textfile.directory` flag, provide a directory to read text files with metrics from
-`REMOTE_ADDR` | Allows setting comma separated remote IP addresses for the Windows Firewall exception (whitelist). Defaults to an empty string (any remote address).
+`REMOTE_ADDR` | Allows setting comma separated remote IP addresses for the Windows Firewall exception (allow list). Defaults to an empty string (any remote address).
 `EXTRA_FLAGS` | Allows passing full CLI flags. Defaults to an empty string.
 
 Parameters are sent to the installer via `msiexec`. Example invocations:
@@ -121,6 +123,13 @@ msiexec /i <path-to-msi-file> ENABLED_COLLECTORS=os,service --% EXTRA_FLAGS="--c
 On some older versions of Windows you may need to surround parameter values with double quotes to get the install command parsing properly:
 ```powershell
 msiexec /i C:\Users\Administrator\Downloads\windows_exporter.msi ENABLED_COLLECTORS="ad,iis,logon,memory,process,tcp,thermalzone" TEXTFILE_DIR="C:\custom_metrics\"
+```
+
+Powershell versions 7.3 and above require [PSNativeCommandArgumentPassing](https://learn.microsoft.com/en-us/powershell/scripting/learn/experimental-features?view=powershell-7.3) to be set to `Legacy` when using `--% EXTRA_FLAGS`:
+
+```powershell
+$PSNativeCommandArgumentPassing = 'Legacy'
+msiexec /i <path-to-msi-file> ENABLED_COLLECTORS=os,service --% EXTRA_FLAGS="--collector.service.services-where ""Name LIKE 'sql%'"""
 ```
 
 
@@ -150,7 +159,7 @@ The prometheus metrics will be exposed on [localhost:9182](http://localhost:9182
 
 ### Enable only process collector and specify a custom query
 
-    .\windows_exporter.exe --collectors.enabled "process" --collector.process.whitelist="firefox.+"
+    .\windows_exporter.exe --collectors.enabled "process" --collector.process.include="firefox.+"
 
 When there are multiple processes with the same name, WMI represents those after the first instance as `process-name#index`. So to get them all, rather than just the first one, the [regular expression](https://en.wikipedia.org/wiki/Regular_expression) must use `.+`. See [process](docs/collector.process.md) for more information.
 
@@ -165,6 +174,10 @@ This enables the additional process and container collectors on top of the defau
 ### Using a configuration file
 
 YAML configuration files can be specified with the `--config.file` flag. e.g. `.\windows_exporter.exe --config.file=config.yml`. If you are using the absolute path, make sure to quote the path, e.g. `.\windows_exporter.exe --config.file="C:\Program Files\windows_exporter\config.yml"`
+
+It is also possible to load the configuration from a URL. e.g. `.\windows_exporter.exe --config.file="https://example.com/config.yml"`
+
+If you need to skip TLS verification, you can use the `--config.file.insecure-skip-verify` flag. e.g. `.\windows_exporter.exe --config.file="https://example.com/config.yml" --config.file.insecure-skip-verify`
 
 ```yaml
 collectors:

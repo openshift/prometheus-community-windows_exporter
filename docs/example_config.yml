@@ -6,12 +6,13 @@ collector:
   service:
     services-where: Name='windows_exporter'
   scheduled_task:
-    blacklist: /Microsoft/.+
+    include: /Microsoft/.+
 log:
   level: debug
 scrape:
   timeout-margin: 0.5
 telemetry:
-  addr: ":9182"
   path: /metrics
   max-requests: 5
+web:
+  listen-address: ":9182"

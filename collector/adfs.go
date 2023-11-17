@@ -4,15 +4,15 @@
 package collector
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
 	"math"
+
+	"github.com/go-kit/log"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func init() {
-	registerCollector("adfs", newADFSCollector, "AD FS")
-}
-
 type adfsCollector struct {
+	logger log.Logger
+
 	adLoginConnectionFailures                          *prometheus.Desc
 	certificateAuthentications                         *prometheus.Desc
 	deviceAuthentications                              *prometheus.Desc
@@ -59,10 +59,12 @@ type adfsCollector struct {
 }
 
 // newADFSCollector constructs a new adfsCollector
-func newADFSCollector() (Collector, error) {
+func newADFSCollector(logger log.Logger) (Collector, error) {
 	const subsystem = "adfs"
 
 	return &adfsCollector{
+		logger: log.With(logger, "collector", subsystem),
+
 		adLoginConnectionFailures: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, subsystem, "ad_login_connection_failures_total"),
 			"Total number of connection failures to an Active Directory domain controller",
@@ -160,7 +162,7 @@ func newADFSCollector() (Collector, error) {
 			nil,
 		),
 		oAuthClientPrivateKeyJwtAuthenticationFailures: prometheus.NewDesc(
-			prometheus.BuildFQName(Namespace, subsystem, "oauth_client_privkey_jtw_authentication_failure_total"),
+			prometheus.BuildFQName(Namespace, subsystem, "oauth_client_privkey_jwt_authentication_failure_total"),
 			"Total number of failed OAuth Client Private Key Jwt Authentications",
 			nil,
 			nil,
@@ -372,7 +374,7 @@ type perflibADFS struct {
 
 func (c *adfsCollector) Collect(ctx *ScrapeContext, ch chan<- prometheus.Metric) error {
 	var adfsData []perflibADFS
-	err := unmarshalObject(ctx.perfObjects["AD FS"], &adfsData)
+	err := unmarshalObject(ctx.perfObjects["AD FS"], &adfsData, c.logger)
 	if err != nil {
 		return err
 	}
