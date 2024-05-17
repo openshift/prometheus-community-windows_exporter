@@ -13,14 +13,14 @@ BASE_IMAGE=mcr.microsoft.com/windows/nanoserver
 
 .PHONY: build
 build: windows_exporter.exe
-windows_exporter.exe: **/*.go
+windows_exporter.exe: pkg/**/*.go
 	promu build -v
 
 test:
 	go test -v ./...
 
 bench:
-	go test -v -bench='benchmark(cpu|logicaldisk|physicaldisk|logon|memory|net|process|service|system|tcp|time)collector' ./...
+	go test -v -bench='benchmarkcollector' ./pkg/collector/{cpu,logical_disk,physical_disk,logon,memory,net,process,service,system,tcp,time}
 
 lint:
 	golangci-lint -c .golangci.yaml run
@@ -41,7 +41,6 @@ crossbuild:
 	# on Windows, so for now, we'll just build twice
 	GOARCH=amd64 promu build --prefix=output/amd64
 	GOARCH=arm64 promu build --prefix=output/arm64
-	GOARCH=386   promu build --prefix=output/386
 
 build-image: crossbuild
 	$(DOCKER) build --build-arg=BASE=$(BASE_IMAGE):$(OS) -f Dockerfile -t $(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(VERSION)-$(OS) .
