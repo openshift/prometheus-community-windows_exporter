@@ -8,6 +8,7 @@ import (
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
+
 	"github.com/prometheus-community/windows_exporter/pkg/collector/ad"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/adcs"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/adfs"
@@ -23,6 +24,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/exchange"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/hyperv"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/iis"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/license"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logical_disk"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logon"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/memory"
@@ -45,11 +47,13 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/nps"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/os"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/physical_disk"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/printer"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/process"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/remote_fx"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/scheduled_task"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/service"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/smb"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/smbclient"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/smtp"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/system"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/tcp"
@@ -83,6 +87,8 @@ func NewWithFlags(app *kingpin.Application) Collectors {
 }
 
 // NewWithConfig To be called by the external libraries for collector initialization without running kingpin.Parse
+//
+//goland:noinspection GoUnusedExportedFunction
 func NewWithConfig(logger log.Logger, config Config) Collectors {
 	collectors := map[string]types.Collector{}
 	collectors[ad.Name] = ad.New(logger, &config.Ad)
@@ -101,6 +107,7 @@ func NewWithConfig(logger log.Logger, config Config) Collectors {
 	collectors[exchange.Name] = exchange.New(logger, &config.Fsrmquota)
 	collectors[hyperv.Name] = hyperv.New(logger, &config.Hyperv)
 	collectors[iis.Name] = iis.New(logger, &config.Iis)
+	collectors[license.Name] = license.New(logger, &config.License)
 	collectors[logical_disk.Name] = logical_disk.New(logger, &config.LogicalDisk)
 	collectors[logon.Name] = logon.New(logger, &config.Logon)
 	collectors[memory.Name] = memory.New(logger, &config.Memory)
@@ -123,11 +130,13 @@ func NewWithConfig(logger log.Logger, config Config) Collectors {
 	collectors[nps.Name] = nps.New(logger, &config.Nps)
 	collectors[os.Name] = os.New(logger, &config.Os)
 	collectors[physical_disk.Name] = physical_disk.New(logger, &config.PhysicalDisk)
+	collectors[printer.Name] = printer.New(logger, &config.Printer)
 	collectors[process.Name] = process.New(logger, &config.Process)
 	collectors[remote_fx.Name] = remote_fx.New(logger, &config.RemoteFx)
 	collectors[scheduled_task.Name] = scheduled_task.New(logger, &config.ScheduledTask)
 	collectors[service.Name] = service.New(logger, &config.Service)
 	collectors[smb.Name] = smb.New(logger, &config.Smb)
+	collectors[smbclient.Name] = smbclient.New(logger, &config.SmbClient)
 	collectors[smtp.Name] = smtp.New(logger, &config.Smtp)
 	collectors[system.Name] = system.New(logger, &config.System)
 	collectors[teradici_pcoip.Name] = teradici_pcoip.New(logger, &config.TeradiciPcoip)
@@ -161,10 +170,11 @@ func (c *Collectors) SetPerfCounterQuery() error {
 	var (
 		err error
 
-		perfCounterDependencies []string
-		perfCounterNames        []string
-		perfIndicies            []string
+		perfCounterNames []string
+		perfIndicies     []string
 	)
+
+	perfCounterDependencies := make([]string, 0, len(c.collectors))
 
 	for _, collector := range c.collectors {
 		perfCounterNames, err = collector.GetPerfCounter()

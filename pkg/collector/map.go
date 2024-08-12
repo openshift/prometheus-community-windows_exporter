@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/fsrmquota"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/hyperv"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/iis"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/license"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logical_disk"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logon"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/memory"
@@ -39,11 +40,13 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/nps"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/os"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/physical_disk"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/printer"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/process"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/remote_fx"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/scheduled_task"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/service"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/smb"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/smbclient"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/smtp"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/system"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/tcp"
@@ -76,6 +79,7 @@ var Map = map[string]types.CollectorBuilderWithFlags{
 	fsrmquota.Name:                       fsrmquota.NewWithFlags,
 	hyperv.Name:                          hyperv.NewWithFlags,
 	iis.Name:                             iis.NewWithFlags,
+	license.Name:                         license.NewWithFlags,
 	logical_disk.Name:                    logical_disk.NewWithFlags,
 	logon.Name:                           logon.NewWithFlags,
 	memory.Name:                          memory.NewWithFlags,
@@ -98,11 +102,13 @@ var Map = map[string]types.CollectorBuilderWithFlags{
 	nps.Name:                             nps.NewWithFlags,
 	os.Name:                              os.NewWithFlags,
 	physical_disk.Name:                   physical_disk.NewWithFlags,
+	printer.Name:                         printer.NewWithFlags,
 	process.Name:                         process.NewWithFlags,
 	remote_fx.Name:                       remote_fx.NewWithFlags,
 	scheduled_task.Name:                  scheduled_task.NewWithFlags,
 	service.Name:                         service.NewWithFlags,
 	smb.Name:                             smb.NewWithFlags,
+	smbclient.Name:                       smbclient.NewWithFlags,
 	smtp.Name:                            smtp.NewWithFlags,
 	system.Name:                          system.NewWithFlags,
 	teradici_pcoip.Name:                  teradici_pcoip.NewWithFlags,
