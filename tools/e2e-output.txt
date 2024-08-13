@@ -21,13 +21,13 @@ test_alpha_total 42
 # TYPE windows_cpu_time_total counter
 # HELP windows_cpu_processor_mperf_total Processor MPerf is the number of TSC ticks incremented while executing instructions
 # TYPE windows_cpu_processor_mperf_total counter
-# HELP windows_cpu_processor_privileged_utility_total Processor Privilieged Utility represents is the amount of time the core has spent executing instructions inside the kernel
+# HELP windows_cpu_processor_privileged_utility_total Processor Privileged Utility represents is the amount of time the core has spent executing instructions inside the kernel
 # TYPE windows_cpu_processor_privileged_utility_total counter
 # HELP windows_cpu_processor_rtc_total Processor RTC represents the number of RTC ticks made since the system booted. It should consistently be 64e6, and can be used to properly derive Processor Utility Rate
 # TYPE windows_cpu_processor_rtc_total counter
 # HELP windows_cpu_processor_utility_total Processor Utility represents is the amount of time the core spends executing instructions
 # TYPE windows_cpu_processor_utility_total counter
-# HELP windows_cs_hostname Labeled system hostname information as provided by ComputerSystem.DNSHostName and ComputerSystem.Domain
+# HELP windows_cs_hostname Labelled system hostname information as provided by ComputerSystem.DNSHostName and ComputerSystem.Domain
 # TYPE windows_cs_hostname gauge
 # HELP windows_cs_logical_processors ComputerSystem.NumberOfLogicalProcessors
 # TYPE windows_cs_logical_processors gauge
@@ -63,6 +63,8 @@ windows_exporter_collector_timeout{collector="textfile"} 0
 # TYPE windows_logical_disk_free_bytes gauge
 # HELP windows_logical_disk_idle_seconds_total Seconds that the disk was idle (LogicalDisk.PercentIdleTime)
 # TYPE windows_logical_disk_idle_seconds_total counter
+# HELP windows_logical_disk_info A metric with a constant '1' value labeled with logical disk information
+# TYPE windows_logical_disk_info gauge
 # HELP windows_logical_disk_read_bytes_total The number of bytes transferred from the disk during read operations (LogicalDisk.DiskReadBytesPerSec)
 # TYPE windows_logical_disk_read_bytes_total counter
 # HELP windows_logical_disk_read_latency_seconds_total Shows the average time, in seconds, of a read operation from the disk (LogicalDisk.AvgDiskSecPerRead)

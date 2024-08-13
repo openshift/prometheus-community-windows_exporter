@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/exchange"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/hyperv"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/iis"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/license"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logical_disk"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logon"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/memory"
@@ -38,11 +39,13 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/nps"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/os"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/physical_disk"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/printer"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/process"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/remote_fx"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/scheduled_task"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/service"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/smb"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/smbclient"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/smtp"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/system"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/tcp"
@@ -72,6 +75,7 @@ type Config struct {
 	Fsrmquota                      exchange.Config                        `yaml:"fsrmquota"`
 	Hyperv                         hyperv.Config                          `yaml:"hyperv"`
 	Iis                            iis.Config                             `yaml:"iis"`
+	License                        license.Config                         `yaml:"license"`
 	LogicalDisk                    logical_disk.Config                    `yaml:"logical_disk"`
 	Logon                          logon.Config                           `yaml:"logon"`
 	Memory                         memory.Config                          `yaml:"memory"`
@@ -94,11 +98,13 @@ type Config struct {
 	Nps                            nps.Config                             `yaml:"nps"`
 	Os                             os.Config                              `yaml:"os"`
 	PhysicalDisk                   physical_disk.Config                   `yaml:"physical_disk"`
+	Printer                        printer.Config                         `yaml:"printer"`
 	Process                        process.Config                         `yaml:"process"`
 	RemoteFx                       remote_fx.Config                       `yaml:"remote_fx"`
 	ScheduledTask                  scheduled_task.Config                  `yaml:"scheduled_task"`
 	Service                        service.Config                         `yaml:"service"`
 	Smb                            smb.Config                             `yaml:"smb"`
+	SmbClient                      smbclient.Config                       `yaml:"smbclient"`
 	Smtp                           smtp.Config                            `yaml:"smtp"`
 	System                         system.Config                          `yaml:"system"`
 	TeradiciPcoip                  teradici_pcoip.Config                  `yaml:"teradici_pcoip"`
@@ -112,6 +118,8 @@ type Config struct {
 }
 
 // ConfigDefaults Is an interface to be used by the external libraries. It holds all ConfigDefaults form all collectors
+//
+//goland:noinspection GoUnusedGlobalVariable
 var ConfigDefaults = Config{
 	Ad:                             ad.ConfigDefaults,
 	Adcs:                           adcs.ConfigDefaults,
@@ -129,6 +137,7 @@ var ConfigDefaults = Config{
 	Fsrmquota:                      exchange.ConfigDefaults,
 	Hyperv:                         hyperv.ConfigDefaults,
 	Iis:                            iis.ConfigDefaults,
+	License:                        license.ConfigDefaults,
 	LogicalDisk:                    logical_disk.ConfigDefaults,
 	Logon:                          logon.ConfigDefaults,
 	Memory:                         memory.ConfigDefaults,
@@ -151,11 +160,13 @@ var ConfigDefaults = Config{
 	Nps:                            nps.ConfigDefaults,
 	Os:                             os.ConfigDefaults,
 	PhysicalDisk:                   physical_disk.ConfigDefaults,
+	Printer:                        printer.ConfigDefaults,
 	Process:                        process.ConfigDefaults,
 	RemoteFx:                       remote_fx.ConfigDefaults,
 	ScheduledTask:                  scheduled_task.ConfigDefaults,
 	Service:                        service.ConfigDefaults,
 	Smb:                            smb.ConfigDefaults,
+	SmbClient:                      smbclient.ConfigDefaults,
 	Smtp:                           smtp.ConfigDefaults,
 	System:                         system.ConfigDefaults,
 	TeradiciPcoip:                  teradici_pcoip.ConfigDefaults,

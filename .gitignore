@@ -6,3 +6,6 @@ output/
 .vscode
 .idea
 *.syso
+installer/*.msi
+installer/*.wixpdb
+local/
