@@ -7,6 +7,7 @@ require (
 	github.com/alecthomas/kingpin/v2 v2.4.0
 	github.com/bmatcuk/doublestar/v4 v4.8.1
 	github.com/dimchansky/utfbom v1.1.1
+	github.com/go-kit/log v0.2.1
 	github.com/go-ole/go-ole v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.20.5
@@ -14,6 +15,7 @@ require (
 	github.com/prometheus/common v0.61.0
 	github.com/prometheus/exporter-toolkit v0.13.2
 	github.com/stretchr/testify v1.10.0
+	github.com/yusufpapurcu/wmi v1.2.4
 	golang.org/x/sys v0.29.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -29,6 +31,7 @@ require (
 	github.com/containerd/typeurl/v2 v2.2.3 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
