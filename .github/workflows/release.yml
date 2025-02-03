@@ -6,6 +6,7 @@ on:
     branches:
       - master
   pull_request:
+  workflow_dispatch:
   release:
     types:
       - published
@@ -16,7 +17,7 @@ permissions:
   packages: write
 
 env:
-  PROMU_VER: '0.14.0'
+  VERSION_PROMU: '0.17.0'
 
 jobs:
   build:
@@ -24,37 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # fetch-depth required for gitversion in `Build` step
-          fetch-depth: 0
+          fetch-depth: '0'
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-
-      # https://github.com/pl4nty/Windows-Containers/blob/Main/helpful_tools/Install-BuildKit-GitHubActions/workflow.yaml
-      - name: Setup containerd
-        run: |
-          $version = "1.7.20"
-          curl.exe -L https://github.com/containerd/containerd/releases/download/v$version/containerd-$version-windows-amd64.tar.gz -o containerd.tar.gz
-          tar.exe xvf containerd.tar.gz
-          .\bin\containerd.exe --register-service
-          Start-Service containerd
-      - name: Setup BuildKit
-        run: |
-          $version = "v0.15.0"
-          curl.exe -L https://github.com/moby/buildkit/releases/download/$version/buildkit-$version.windows-amd64.tar.gz -o buildkit.tar.gz
-          tar.exe xvf buildkit.tar.gz
-          
-          .\bin\buildkitd.exe --register-service
-          Start-Service buildkitd
-      - name: Setup Docker Buildx
-        run: |
-          $version = "v0.16.1"
-          curl.exe -L https://github.com/docker/buildx/releases/download/$version/buildx-$version.windows-amd64.exe -o $env:ProgramData\Docker\cli-plugins\docker-buildx.exe
-      - uses: docker/setup-buildx-action@v3
-        with:
-          driver: remote
-          endpoint: npipe:////./pipe/buildkitd
 
       - name: Install WiX
         run: dotnet tool install --global wix
@@ -62,13 +37,14 @@ jobs:
       - name: Install WiX extensions
         run: |
           wix extension add -g WixToolset.Util.wixext
+          wix extension add -g WixToolset.Ui.wixext
           wix extension add -g WixToolset.Firewall.wixext
 
       - name: Install Build deps
         run: |
-          Invoke-WebRequest -Uri https://github.com/prometheus/promu/releases/download/v$($Env:PROMU_VER)/promu-$($Env:PROMU_VER).windows-amd64.zip -OutFile promu-$($Env:PROMU_VER).windows-amd64.zip
-          Expand-Archive -Path promu-$($Env:PROMU_VER).windows-amd64.zip -DestinationPath .
-          Copy-Item -Path promu-$($Env:PROMU_VER).windows-amd64\promu.exe -Destination "$(go env GOPATH)\bin"
+          Invoke-WebRequest -Uri https://github.com/prometheus/promu/releases/download/v$($Env:VERSION_PROMU)/promu-$($Env:VERSION_PROMU).windows-amd64.zip -OutFile promu-$($Env:VERSION_PROMU).windows-amd64.zip
+          Expand-Archive -Path promu-$($Env:VERSION_PROMU).windows-amd64.zip -DestinationPath .
+          Copy-Item -Path promu-$($Env:VERSION_PROMU).windows-amd64\promu.exe -Destination "$(go env GOPATH)\bin"
 
           # GOPATH\bin dir must be added to PATH else the `promu` commands won't be found
           echo "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -76,53 +52,66 @@ jobs:
       - name: Build
         run: |
           $ErrorActionPreference = "Stop"
-          
-          $Version = git describe --tag
+
+          $Version = git describe --tags --always
           $Version = $Version -replace 'v', ''
           # '+' symbols are invalid characters in image tags
           $Version = $Version -replace '\+', '_'
           $Version | Set-Content VERSION -PassThru
-          
+
           make build-all
-          
+
           # GH requires all files to have different names, so add version/arch to differentiate
           foreach($Arch in "amd64", "arm64") {
             Move-Item output\$Arch\windows_exporter.exe output\windows_exporter-$Version-$Arch.exe
           }
-          
-          Get-ChildItem -Path output
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows_exporter_binaries
-          path: output\windows_exporter-*.exe
+          Get-ChildItem -Path output
 
       - name: Build Release Artifacts
         run: |
           $ErrorActionPreference = "Stop"
           $Version = Get-Content VERSION
-          
+
           foreach($Arch in "amd64", "arm64") {
             Write-Host "Building windows_exporter $Version msi for $Arch"
             .\installer\build.ps1 -PathToExecutable .\output\windows_exporter-$Version-$Arch.exe -Version $Version -Arch "$Arch"
           }
-          
+
           Move-Item installer\*.msi output\
           Get-ChildItem -Path output\
 
           promu checksum output\
 
-      - name: Build Docker Artifacts
-        run: make build-all
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows_exporter_binaries
+          path: |
+            output\windows_exporter-*.exe
+            output\windows_exporter-*.msi
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
-          VERSION: >-
-            ${{
-              startsWith(github.ref, 'refs/tags/') && 'latest' || 
-              (
-                github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name
-              )
-            }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $TagName = $env:GITHUB_REF -replace 'refs/tags/', ''
+          Get-ChildItem -Path output\* -Include @('windows_exporter*.msi', 'windows_exporter*.exe', 'sha256sums.txt') | Foreach-Object {gh release upload $TagName $_}
+  docker:
+    name: Build docker images
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows_exporter_binaries
 
       - name: Login to Docker Hub
         if: ${{ github.event_name != 'pull_request' }}
@@ -136,8 +125,8 @@ jobs:
       #  uses: docker/login-action@v3
       #  with:
       #    registry: quay.io
-      #    username: 'robot'
-      #    password: ${{ secrets.QUAY_IO_API_TOKEN }}
+      #    username: ${{ secrets.QUAY_USER }}
+      #    password: ${{ secrets.QUAY_PASS }}
 
       - name: Login to GitHub container registry
         if: ${{ github.event_name != 'pull_request' }}
@@ -147,19 +136,32 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push Latest image
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ startsWith(github.ref, 'refs/tags/') && 'latest' || github.ref_name }}
-        run: |
-          make push-all
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/prometheus-community/windows-exporter
+            docker.io/prometheuscommunity/windows-exporter
+          # quay.io/prometheuscommunity/windows-exporter
+          tags: |
+            type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=windows_exporter
+            org.opencontainers.image.description=A Prometheus exporter for Windows machines.
+            org.opencontainers.image.vendor=The Prometheus Community
+            org.opencontainers.image.licenses=MIT
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $TagName = $env:GITHUB_REF -replace 'refs/tags/', ''
-          Get-ChildItem -Path output\* -Include @('windows_exporter*.msi', 'windows_exporter*.exe', 'sha256sums.txt') | Foreach-Object {gh release upload $TagName $_}
-          make push-all
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: windows/amd64
