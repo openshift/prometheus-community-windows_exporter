@@ -10,7 +10,7 @@ on:
       - master
 
 env:
-  PROMU_VER: 'v0.14.0'
+  VERSION_PROMU: 'v0.14.0'
 
 jobs:
   codespell:
@@ -23,4 +23,4 @@ jobs:
           check_filenames: true
           # When using this Action in other repos, the --skip option below can be removed
           skip: ./.git,go.mod,go.sum
-          ignore_words_list: calle
+          ignore_words_list: calle,Entires
