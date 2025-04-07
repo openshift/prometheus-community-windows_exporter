@@ -1,6 +1,7 @@
 module github.com/prometheus-community/windows_exporter
 
 go 1.23
+toolchain go1.24.1
 
 require (
 	github.com/Microsoft/hcsshim v0.12.9
@@ -16,7 +17,7 @@ require (
 	github.com/prometheus/exporter-toolkit v0.13.2
 	github.com/stretchr/testify v1.10.0
 	github.com/yusufpapurcu/wmi v1.2.4
-	golang.org/x/sys v0.29.0
+	golang.org/x/sys v0.32.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
