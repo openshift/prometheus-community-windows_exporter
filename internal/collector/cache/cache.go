@@ -98,13 +98,6 @@ func (c *Collector) Close() error {
 }
 
 func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
-	var err error
-
-	c.perfDataCollector, err = pdh.NewCollector[perfDataCounterValues](pdh.CounterTypeRaw, "Cache", pdh.InstancesAll)
-	if err != nil {
-		return fmt.Errorf("failed to create Cache collector: %w", err)
-	}
-
 	c.asyncCopyReadsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "async_copy_reads_total"),
 		"(AsyncCopyReadsTotal)",
@@ -280,6 +273,13 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 		nil,
 	)
 
+	var err error
+
+	c.perfDataCollector, err = pdh.NewCollector[perfDataCounterValues](pdh.CounterTypeRaw, "Cache", pdh.InstancesAll)
+	if err != nil {
+		return fmt.Errorf("failed to create Cache collector: %w", err)
+	}
+
 	return nil
 }
 
@@ -288,6 +288,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 	err := c.perfDataCollector.Collect(&c.perfDataObject)
 	if err != nil {
 		return fmt.Errorf("failed to collect Cache metrics: %w", err)
+	} else if len(c.perfDataObject) == 0 {
+		return fmt.Errorf("failed to collect Cache metrics: %w", types.ErrNoDataUnexpected)
 	}
 
 	ch <- prometheus.MustNewConstMetric(
