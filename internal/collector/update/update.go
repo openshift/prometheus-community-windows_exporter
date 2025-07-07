@@ -37,14 +37,14 @@ import (
 const Name = "update"
 
 type Config struct {
-	online         bool          `yaml:"online"`
-	scrapeInterval time.Duration `yaml:"scrape_interval"`
+	Online         bool          `yaml:"online"`
+	ScrapeInterval time.Duration `yaml:"scrape_interval"`
 }
 
 //nolint:gochecknoglobals
 var ConfigDefaults = Config{
-	online:         false,
-	scrapeInterval: 6 * time.Hour,
+	Online:         false,
+	ScrapeInterval: 6 * time.Hour,
 }
 
 var (
@@ -85,12 +85,12 @@ func NewWithFlags(app *kingpin.Application) *Collector {
 	app.Flag(
 		"collector.updates.online",
 		"Whether to search for updates online.",
-	).Default(strconv.FormatBool(ConfigDefaults.online)).BoolVar(&c.config.online)
+	).Default(strconv.FormatBool(ConfigDefaults.Online)).BoolVar(&c.config.Online)
 
 	app.Flag(
 		"collector.updates.scrape-interval",
 		"Define the interval of scraping Windows Update information.",
-	).Default(ConfigDefaults.scrapeInterval.String()).DurationVar(&c.config.scrapeInterval)
+	).Default(ConfigDefaults.ScrapeInterval.String()).DurationVar(&c.config.ScrapeInterval)
 
 	return c
 }
@@ -109,7 +109,7 @@ func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	initErrCh := make(chan error, 1)
-	go c.scheduleUpdateStatus(ctx, logger, initErrCh, c.config.online)
+	go c.scheduleUpdateStatus(ctx, logger, initErrCh, c.config.Online)
 
 	c.ctxCancelFn = cancel
 
@@ -166,7 +166,7 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED|ole.COINIT_DISABLE_OLE1DDE); err != nil {
 		var oleCode *ole.OleError
 		if errors.As(err, &oleCode) && oleCode.Code() != ole.S_OK && oleCode.Code() != 0x00000001 {
 			initErrCh <- fmt.Errorf("CoInitializeEx: %w", err)
@@ -178,17 +178,17 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 	defer ole.CoUninitialize()
 
 	// Create a new instance of the WMI object
-	mus, err := oleutil.CreateObject("Microsoft.Update.Session")
+	sessionObj, err := oleutil.CreateObject("Microsoft.Update.Session")
 	if err != nil {
 		initErrCh <- fmt.Errorf("create Microsoft.Update.Session: %w", err)
 
 		return
 	}
 
-	defer mus.Release()
+	defer sessionObj.Release()
 
 	// Query the IDispatch interface of the object
-	musQueryInterface, err := mus.QueryInterface(ole.IID_IDispatch)
+	musQueryInterface, err := sessionObj.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
 		initErrCh <- fmt.Errorf("IID_IDispatch: %w", err)
 
@@ -206,9 +206,9 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 
 	// https://learn.microsoft.com/en-us/windows/win32/api/wuapi/nf-wuapi-iupdatesession-createupdatesearcher
 	us, err := oleutil.CallMethod(musQueryInterface, "CreateUpdateSearcher")
-	defer func(hc *ole.VARIANT) {
+	defer func(us *ole.VARIANT) {
 		if us != nil {
-			_ = hc.Clear()
+			_ = us.Clear()
 		}
 	}(us)
 
@@ -268,7 +268,7 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 		c.mu.Unlock()
 
 		select {
-		case <-time.After(c.config.scrapeInterval):
+		case <-time.After(c.config.ScrapeInterval):
 		case <-ctx.Done():
 			return
 		}

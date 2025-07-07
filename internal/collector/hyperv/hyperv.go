@@ -23,11 +23,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus-community/windows_exporter/internal/mi"
-	"github.com/prometheus-community/windows_exporter/internal/types"
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/sys/windows"
 )
 
 const (
@@ -149,7 +148,7 @@ func (c *Collector) Close() error {
 	return nil
 }
 
-func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
+func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
 	c.collectorFns = make([]func(ch chan<- prometheus.Metric) error, 0, len(c.config.CollectorsEnabled))
 	c.closeFns = make([]func(), 0, len(c.config.CollectorsEnabled))
 
@@ -157,19 +156,17 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 		return nil
 	}
 
-	version := windows.RtlGetVersion()
-
 	subCollectors := map[string]struct {
 		build          func() error
 		collect        func(ch chan<- prometheus.Metric) error
 		close          func()
-		minBuildNumber uint32
+		minBuildNumber uint16
 	}{
 		subCollectorDataStore: {
 			build:          c.buildDataStore,
 			collect:        c.collectDataStore,
 			close:          c.perfDataCollectorDataStore.Close,
-			minBuildNumber: types.BuildNumberWindowsServer2022,
+			minBuildNumber: osversion.LTSC2022,
 		},
 		subCollectorDynamicMemoryBalancer: {
 			build:   c.buildDynamicMemoryBalancer,
@@ -227,9 +224,10 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 			close:   c.perfDataCollectorVirtualNetworkAdapterDropReasons.Close,
 		},
 		subCollectorVirtualSMB: {
-			build:   c.buildVirtualSMB,
-			collect: c.collectVirtualSMB,
-			close:   c.perfDataCollectorVirtualSMB.Close,
+			build:          c.buildVirtualSMB,
+			collect:        c.collectVirtualSMB,
+			close:          c.perfDataCollectorVirtualSMB.Close,
+			minBuildNumber: osversion.LTSC2022,
 		},
 		subCollectorVirtualStorageDevice: {
 			build:   c.buildVirtualStorageDevice,
@@ -243,6 +241,8 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 		},
 	}
 
+	buildNumber := osversion.Build()
+
 	// Result must order, to prevent test failures.
 	sort.Strings(c.config.CollectorsEnabled)
 
@@ -253,8 +253,11 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 			return fmt.Errorf("unknown collector: %s", name)
 		}
 
-		if version.BuildNumber < subCollectors[name].minBuildNumber {
-			errs = append(errs, fmt.Errorf("collector %s requires Windows Server 2022 or newer", name))
+		if buildNumber < subCollectors[name].minBuildNumber {
+			logger.Warn(fmt.Sprintf(
+				"collector %s requires windows build version %d. Current build version: %d",
+				name, subCollectors[name].minBuildNumber, buildNumber,
+			), slog.String("collector", name))
 
 			continue
 		}
