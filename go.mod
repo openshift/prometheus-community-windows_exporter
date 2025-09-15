@@ -15,7 +15,7 @@ require (
 	github.com/prometheus/client_model v0.6.1
 	github.com/prometheus/common v0.62.0
 	github.com/prometheus/exporter-toolkit v0.14.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/yusufpapurcu/wmi v1.2.4
 	golang.org/x/sys v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
