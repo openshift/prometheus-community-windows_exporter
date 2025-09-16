@@ -16,8 +16,8 @@ package flag
 import (
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus-community/windows_exporter/log"
-	"github.com/prometheus/common/promlog"
-	promlogflag "github.com/prometheus/common/promlog/flag"
+	"github.com/prometheus/common/promslog"
+	promlogflag "github.com/prometheus/common/promslog/flag"
 )
 
 // FileFlagName is the canonical flag name to configure the log file

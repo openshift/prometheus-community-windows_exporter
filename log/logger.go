@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/prometheus-community/windows_exporter/log/eventlog"
-	"github.com/prometheus/common/promlog"
+	"github.com/prometheus/common/promslog"
 	goeventlog "golang.org/x/sys/windows/svc/eventlog"
 )
 
