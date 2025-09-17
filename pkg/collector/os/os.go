@@ -11,17 +11,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alecthomas/kingpin/v2"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/headers/kernel32"
 	"github.com/prometheus-community/windows_exporter/pkg/headers/netapi32"
 	"github.com/prometheus-community/windows_exporter/pkg/headers/psapi"
 	"github.com/prometheus-community/windows_exporter/pkg/headers/sysinfoapi"
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
-
-	"github.com/alecthomas/kingpin/v2"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -31,23 +31,23 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI metrics.
+type Collector struct {
+	config Config
 
-	OSInformation           *prometheus.Desc
-	PhysicalMemoryFreeBytes *prometheus.Desc
-	PagingFreeBytes         *prometheus.Desc
-	VirtualMemoryFreeBytes  *prometheus.Desc
-	ProcessesLimit          *prometheus.Desc
-	ProcessMemoryLimitBytes *prometheus.Desc
-	Processes               *prometheus.Desc
-	Users                   *prometheus.Desc
-	PagingLimitBytes        *prometheus.Desc
-	VirtualMemoryBytes      *prometheus.Desc
-	VisibleMemoryBytes      *prometheus.Desc
-	Time                    *prometheus.Desc
-	Timezone                *prometheus.Desc
+	osInformation           *prometheus.Desc
+	pagingFreeBytes         *prometheus.Desc
+	pagingLimitBytes        *prometheus.Desc
+	physicalMemoryFreeBytes *prometheus.Desc
+	processMemoryLimitBytes *prometheus.Desc
+	processes               *prometheus.Desc
+	processesLimit          *prometheus.Desc
+	time                    *prometheus.Desc
+	timezone                *prometheus.Desc
+	users                   *prometheus.Desc
+	virtualMemoryBytes      *prometheus.Desc
+	virtualMemoryFreeBytes  *prometheus.Desc
+	visibleMemoryBytes      *prometheus.Desc
 }
 
 type pagingFileCounter struct {
@@ -56,102 +56,108 @@ type pagingFileCounter struct {
 	UsagePeak float64 `perflib:"% Usage Peak"`
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"Paging File"}, nil
 }
 
-func (c *collector) Build() error {
-	c.OSInformation = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.osInformation = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "info"),
 		"OperatingSystem.Caption, OperatingSystem.Version",
 		[]string{"product", "version", "major_version", "minor_version", "build_number", "revision"},
 		nil,
 	)
-	c.PagingLimitBytes = prometheus.NewDesc(
+	c.pagingLimitBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "paging_limit_bytes"),
 		"OperatingSystem.SizeStoredInPagingFiles",
 		nil,
 		nil,
 	)
-	c.PagingFreeBytes = prometheus.NewDesc(
+	c.pagingFreeBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "paging_free_bytes"),
 		"OperatingSystem.FreeSpaceInPagingFiles",
 		nil,
 		nil,
 	)
-	c.PhysicalMemoryFreeBytes = prometheus.NewDesc(
+	c.physicalMemoryFreeBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "physical_memory_free_bytes"),
 		"OperatingSystem.FreePhysicalMemory",
 		nil,
 		nil,
 	)
-	c.Time = prometheus.NewDesc(
+	c.time = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "time"),
 		"OperatingSystem.LocalDateTime",
 		nil,
 		nil,
 	)
-	c.Timezone = prometheus.NewDesc(
+	c.timezone = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "timezone"),
 		"OperatingSystem.LocalDateTime",
 		[]string{"timezone"},
 		nil,
 	)
-	c.Processes = prometheus.NewDesc(
+	c.processes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "processes"),
 		"OperatingSystem.NumberOfProcesses",
 		nil,
 		nil,
 	)
-	c.ProcessesLimit = prometheus.NewDesc(
+	c.processesLimit = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "processes_limit"),
 		"OperatingSystem.MaxNumberOfProcesses",
 		nil,
 		nil,
 	)
-	c.ProcessMemoryLimitBytes = prometheus.NewDesc(
+	c.processMemoryLimitBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "process_memory_limit_bytes"),
 		"OperatingSystem.MaxProcessMemorySize",
 		nil,
 		nil,
 	)
-	c.Users = prometheus.NewDesc(
+	c.users = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "users"),
 		"OperatingSystem.NumberOfUsers",
 		nil,
 		nil,
 	)
-	c.VirtualMemoryBytes = prometheus.NewDesc(
+	c.virtualMemoryBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "virtual_memory_bytes"),
 		"OperatingSystem.TotalVirtualMemorySize",
 		nil,
 		nil,
 	)
-	c.VisibleMemoryBytes = prometheus.NewDesc(
+	c.visibleMemoryBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "visible_memory_bytes"),
 		"OperatingSystem.TotalVisibleMemorySize",
 		nil,
 		nil,
 	)
-	c.VirtualMemoryFreeBytes = prometheus.NewDesc(
+	c.virtualMemoryFreeBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "virtual_memory_free_bytes"),
 		"OperatingSystem.FreeVirtualMemory",
 		nil,
@@ -162,16 +168,17 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
-	if err := c.collect(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting os metrics", "err", err)
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
+	if err := c.collect(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting os metrics", "err", err)
 		return err
 	}
 	return nil
 }
 
 // Win32_OperatingSystem docs:
-// - https://msdn.microsoft.com/en-us/library/aa394239 - Win32_OperatingSystem class
+// - https://msdn.microsoft.com/en-us/library/aa394239 - Win32_OperatingSystem class.
 type Win32_OperatingSystem struct {
 	Caption                 string
 	FreePhysicalMemory      uint64
@@ -188,7 +195,8 @@ type Win32_OperatingSystem struct {
 	Version                 string
 }
 
-func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	nwgi, err := netapi32.GetWorkstationInfo()
 	if err != nil {
 		return err
@@ -211,10 +219,11 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 
 	// Get total allocation of paging files across all disks.
 	memManKey, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management`, registry.QUERY_VALUE)
-	defer memManKey.Close()
 	if err != nil {
 		return err
 	}
+
+	defer memManKey.Close()
 
 	pagingFiles, _, pagingErr := memManKey.GetStringsValue("ExistingPageFiles")
 
@@ -224,7 +233,7 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 		file, err := os.Stat(fileString)
 		// For unknown reasons, Windows doesn't always create a page file. Continue collection rather than aborting.
 		if err != nil {
-			_ = level.Debug(c.logger).Log("msg", fmt.Sprintf("Failed to read page file (reason: %s): %s\n", err, fileString))
+			_ = level.Debug(logger).Log("msg", fmt.Sprintf("Failed to read page file (reason: %s): %s\n", err, fileString))
 		} else {
 			fsipf += float64(file.Size())
 		}
@@ -232,11 +241,11 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 
 	// Get build number and product name from registry
 	ntKey, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
-	defer ntKey.Close()
-
 	if err != nil {
 		return err
 	}
+
+	defer ntKey.Close()
 
 	pn, _, err := ntKey.GetStringValue("ProductName")
 	if err != nil {
@@ -261,7 +270,7 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 	}
 
 	pfc := make([]pagingFileCounter, 0)
-	if err := perflib.UnmarshalObject(ctx.PerfObjects["Paging File"], &pfc, c.logger); err != nil {
+	if err := perflib.UnmarshalObject(ctx.PerfObjects["Paging File"], &pfc, logger); err != nil {
 		return err
 	}
 
@@ -278,7 +287,7 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 	pfb := fsipf - (pfbRaw * float64(gpi.PageSize))
 
 	ch <- prometheus.MustNewConstMetric(
-		c.OSInformation,
+		c.osInformation,
 		prometheus.GaugeValue,
 		1.0,
 		"Microsoft "+pn, // Caption
@@ -290,19 +299,19 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.PhysicalMemoryFreeBytes,
+		c.physicalMemoryFreeBytes,
 		prometheus.GaugeValue,
 		float64(gmse.AvailPhys),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.Time,
+		c.time,
 		prometheus.GaugeValue,
 		float64(currentTime.Unix()),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.Timezone,
+		c.timezone,
 		prometheus.GaugeValue,
 		1.0,
 		timezoneName,
@@ -310,21 +319,21 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 
 	if pagingErr == nil {
 		ch <- prometheus.MustNewConstMetric(
-			c.PagingFreeBytes,
+			c.pagingFreeBytes,
 			prometheus.GaugeValue,
 			pfb,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.PagingLimitBytes,
+			c.pagingLimitBytes,
 			prometheus.GaugeValue,
 			fsipf,
 		)
 	} else {
-		_ = level.Debug(c.logger).Log("msg", "Could not find HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management key. windows_os_paging_free_bytes and windows_os_paging_limit_bytes will be omitted.")
+		_ = level.Debug(logger).Log("msg", "Could not find HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management key. windows_os_paging_free_bytes and windows_os_paging_limit_bytes will be omitted.")
 	}
 	ch <- prometheus.MustNewConstMetric(
-		c.VirtualMemoryFreeBytes,
+		c.virtualMemoryFreeBytes,
 		prometheus.GaugeValue,
 		float64(gmse.AvailPageFile),
 	)
@@ -333,37 +342,37 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 	// https://techcommunity.microsoft.com/t5/windows-blog-archive/pushing-the-limits-of-windows-processes-and-threads/ba-p/723824
 	// https://docs.microsoft.com/en-us/windows/win32/cimwin32prov/win32-operatingsystem
 	ch <- prometheus.MustNewConstMetric(
-		c.ProcessesLimit,
+		c.processesLimit,
 		prometheus.GaugeValue,
 		float64(4294967295),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.ProcessMemoryLimitBytes,
+		c.processMemoryLimitBytes,
 		prometheus.GaugeValue,
 		float64(gmse.TotalVirtual),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.Processes,
+		c.processes,
 		prometheus.GaugeValue,
 		float64(gpi.ProcessCount),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.Users,
+		c.users,
 		prometheus.GaugeValue,
 		float64(nwgi.LoggedOnUsers),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.VirtualMemoryBytes,
+		c.virtualMemoryBytes,
 		prometheus.GaugeValue,
 		float64(gmse.TotalPageFile),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.VisibleMemoryBytes,
+		c.visibleMemoryBytes,
 		prometheus.GaugeValue,
 		float64(gmse.TotalPhys),
 	)

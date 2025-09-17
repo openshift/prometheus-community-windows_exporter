@@ -3,6 +3,7 @@
 package msmq
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -10,91 +11,103 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus-community/windows_exporter/pkg/utils"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
-const (
-	Name                = "msmq"
-	FlagMsmqWhereClause = "collector.msmq.msmq-where"
-)
+const Name = "msmq"
 
 type Config struct {
-	QueryWhereClause string `yaml:"query_where_clause"`
+	QueryWhereClause *string `yaml:"query_where_clause"`
 }
 
 var ConfigDefaults = Config{
-	QueryWhereClause: "",
+	QueryWhereClause: utils.ToPTR(""),
 }
 
-// A collector is a Prometheus collector for WMI Win32_PerfRawData_MSMQ_MSMQQueue metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI Win32_PerfRawData_MSMQ_MSMQQueue metrics.
+type Collector struct {
+	config    Config
+	wmiClient *wmi.Client
 
-	queryWhereClause *string
-
-	BytesinJournalQueue    *prometheus.Desc
-	BytesinQueue           *prometheus.Desc
-	MessagesinJournalQueue *prometheus.Desc
-	MessagesinQueue        *prometheus.Desc
+	bytesInJournalQueue    *prometheus.Desc
+	bytesInQueue           *prometheus.Desc
+	messagesInJournalQueue *prometheus.Desc
+	messagesInQueue        *prometheus.Desc
 }
 
-func New(logger log.Logger, config *Config) types.Collector {
+func New(config *Config) *Collector {
 	if config == nil {
 		config = &ConfigDefaults
 	}
 
-	c := &collector{
-		queryWhereClause: &config.QueryWhereClause,
+	if config.QueryWhereClause == nil {
+		config.QueryWhereClause = ConfigDefaults.QueryWhereClause
 	}
-	c.SetLogger(logger)
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(app *kingpin.Application) types.Collector {
-	return &collector{
-		queryWhereClause: app.
-			Flag(FlagMsmqWhereClause, "WQL 'where' clause to use in WMI metrics query. Limits the response to the msmqs you specify and reduces the size of the response.").
-			Default(ConfigDefaults.QueryWhereClause).String(),
+func NewWithFlags(app *kingpin.Application) *Collector {
+	c := &Collector{
+		config: ConfigDefaults,
 	}
+
+	app.Flag("collector.msmq.msmq-where", "WQL 'where' clause to use in WMI metrics query. "+
+		"Limits the response to the msmqs you specify and reduces the size of the response.").
+		Default(*c.config.QueryWhereClause).StringVar(c.config.QueryWhereClause)
+
+	return c
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	if utils.IsEmpty(c.queryWhereClause) {
-		_ = level.Warn(c.logger).Log("msg", "No where-clause specified for msmq collector. This will generate a very large number of metrics!")
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(logger log.Logger, wmiClient *wmi.Client) error {
+	logger = log.With(logger, "collector", Name)
+
+	if wmiClient == nil || wmiClient.SWbemServicesClient == nil {
+		return errors.New("wmiClient or SWbemServicesClient is nil")
 	}
 
-	c.BytesinJournalQueue = prometheus.NewDesc(
+	c.wmiClient = wmiClient
+
+	if *c.config.QueryWhereClause == "" {
+		_ = level.Warn(logger).Log("msg", "No where-clause specified for msmq collector. This will generate a very large number of metrics!")
+	}
+
+	c.bytesInJournalQueue = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "bytes_in_journal_queue"),
 		"Size of queue journal in bytes",
 		[]string{"name"},
 		nil,
 	)
-	c.BytesinQueue = prometheus.NewDesc(
+	c.bytesInQueue = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "bytes_in_queue"),
 		"Size of queue in bytes",
 		[]string{"name"},
 		nil,
 	)
-	c.MessagesinJournalQueue = prometheus.NewDesc(
+	c.messagesInJournalQueue = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "messages_in_journal_queue"),
 		"Count messages in queue journal",
 		[]string{"name"},
 		nil,
 	)
-	c.MessagesinQueue = prometheus.NewDesc(
+	c.messagesInQueue = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "messages_in_queue"),
 		"Count messages in queue",
 		[]string{"name"},
@@ -105,58 +118,65 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting msmq metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting msmq metrics", "err", err)
 		return err
 	}
 	return nil
 }
 
-type Win32_PerfRawData_MSMQ_MSMQQueue struct {
+type msmqQueue struct {
 	Name string
 
-	BytesinJournalQueue    uint64
-	BytesinQueue           uint64
-	MessagesinJournalQueue uint64
-	MessagesinQueue        uint64
+	BytesInJournalQueue    uint64
+	BytesInQueue           uint64
+	MessagesInJournalQueue uint64
+	MessagesInQueue        uint64
 }
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
-	var dst []Win32_PerfRawData_MSMQ_MSMQQueue
-	q := wmi.QueryAllWhere(&dst, *c.queryWhereClause, c.logger)
-	if err := wmi.Query(q, &dst); err != nil {
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
+	var dst []msmqQueue
+
+	query := "SELECT * FROM Win32_PerfRawData_MSMQ_MSMQQueue"
+	if *c.config.QueryWhereClause != "" {
+		query += " WHERE " + *c.config.QueryWhereClause
+	}
+
+	if err := c.wmiClient.Query(query, &dst); err != nil {
 		return err
 	}
 
 	for _, msmq := range dst {
 		ch <- prometheus.MustNewConstMetric(
-			c.BytesinJournalQueue,
+			c.bytesInJournalQueue,
 			prometheus.GaugeValue,
-			float64(msmq.BytesinJournalQueue),
+			float64(msmq.BytesInJournalQueue),
 			strings.ToLower(msmq.Name),
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.BytesinQueue,
+			c.bytesInQueue,
 			prometheus.GaugeValue,
-			float64(msmq.BytesinQueue),
+			float64(msmq.BytesInQueue),
 			strings.ToLower(msmq.Name),
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.MessagesinJournalQueue,
+			c.messagesInJournalQueue,
 			prometheus.GaugeValue,
-			float64(msmq.MessagesinJournalQueue),
+			float64(msmq.MessagesInJournalQueue),
 			strings.ToLower(msmq.Name),
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.MessagesinQueue,
+			c.messagesInQueue,
 			prometheus.GaugeValue,
-			float64(msmq.MessagesinQueue),
+			float64(msmq.MessagesInQueue),
 			strings.ToLower(msmq.Name),
 		)
 	}
+
 	return nil
 }

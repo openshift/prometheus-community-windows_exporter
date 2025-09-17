@@ -3,12 +3,14 @@
 package netframework_clrmemory
 
 import (
+	"errors"
+
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "netframework_clrmemory"
@@ -17,117 +19,127 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI Win32_PerfRawData_NETFramework_NETCLRMemory metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI Win32_PerfRawData_NETFramework_NETCLRMemory metrics.
+type Collector struct {
+	config    Config
+	wmiClient *wmi.Client
 
-	AllocatedBytes                     *prometheus.Desc
-	FinalizationSurvivors              *prometheus.Desc
-	HeapSize                           *prometheus.Desc
-	PromotedBytes                      *prometheus.Desc
-	NumberGCHandles                    *prometheus.Desc
-	NumberCollections                  *prometheus.Desc
-	NumberInducedGC                    *prometheus.Desc
-	NumberofPinnedObjects              *prometheus.Desc
-	NumberofSinkBlocksinuse            *prometheus.Desc
-	NumberTotalCommittedBytes          *prometheus.Desc
-	NumberTotalreservedBytes           *prometheus.Desc
-	TimeinGC                           *prometheus.Desc
-	PromotedFinalizationMemoryfromGen0 *prometheus.Desc
-	PromotedMemoryfromGen0             *prometheus.Desc
-	PromotedMemoryfromGen1             *prometheus.Desc
+	allocatedBytes            *prometheus.Desc
+	finalizationSurvivors     *prometheus.Desc
+	heapSize                  *prometheus.Desc
+	promotedBytes             *prometheus.Desc
+	numberGCHandles           *prometheus.Desc
+	numberCollections         *prometheus.Desc
+	numberInducedGC           *prometheus.Desc
+	numberOfPinnedObjects     *prometheus.Desc
+	numberOfSinkBlocksInUse   *prometheus.Desc
+	numberTotalCommittedBytes *prometheus.Desc
+	numberTotalReservedBytes  *prometheus.Desc
+	timeInGC                  *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	c.AllocatedBytes = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, wmiClient *wmi.Client) error {
+	if wmiClient == nil || wmiClient.SWbemServicesClient == nil {
+		return errors.New("wmiClient or SWbemServicesClient is nil")
+	}
+
+	c.wmiClient = wmiClient
+
+	c.allocatedBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "allocated_bytes_total"),
 		"Displays the total number of bytes allocated on the garbage collection heap.",
 		[]string{"process"},
 		nil,
 	)
-	c.FinalizationSurvivors = prometheus.NewDesc(
+	c.finalizationSurvivors = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "finalization_survivors"),
 		"Displays the number of garbage-collected objects that survive a collection because they are waiting to be finalized.",
 		[]string{"process"},
 		nil,
 	)
-	c.HeapSize = prometheus.NewDesc(
+	c.heapSize = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "heap_size_bytes"),
 		"Displays the maximum bytes that can be allocated; it does not indicate the current number of bytes allocated.",
 		[]string{"process", "area"},
 		nil,
 	)
-	c.PromotedBytes = prometheus.NewDesc(
+	c.promotedBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "promoted_bytes"),
 		"Displays the bytes that were promoted from the generation to the next one during the last GC. Memory is promoted when it survives a garbage collection.",
 		[]string{"process", "area"},
 		nil,
 	)
-	c.NumberGCHandles = prometheus.NewDesc(
+	c.numberGCHandles = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "number_gc_handles"),
 		"Displays the current number of garbage collection handles in use. Garbage collection handles are handles to resources external to the common language runtime and the managed environment.",
 		[]string{"process"},
 		nil,
 	)
-	c.NumberCollections = prometheus.NewDesc(
+	c.numberCollections = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "collections_total"),
 		"Displays the number of times the generation objects are garbage collected since the application started.",
 		[]string{"process", "area"},
 		nil,
 	)
-	c.NumberInducedGC = prometheus.NewDesc(
+	c.numberInducedGC = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "induced_gc_total"),
 		"Displays the peak number of times garbage collection was performed because of an explicit call to GC.Collect.",
 		[]string{"process"},
 		nil,
 	)
-	c.NumberofPinnedObjects = prometheus.NewDesc(
+	c.numberOfPinnedObjects = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "number_pinned_objects"),
 		"Displays the number of pinned objects encountered in the last garbage collection.",
 		[]string{"process"},
 		nil,
 	)
-	c.NumberofSinkBlocksinuse = prometheus.NewDesc(
+	c.numberOfSinkBlocksInUse = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "number_sink_blocksinuse"),
 		"Displays the current number of synchronization blocks in use. Synchronization blocks are per-object data structures allocated for storing synchronization information. They hold weak references to managed objects and must be scanned by the garbage collector.",
 		[]string{"process"},
 		nil,
 	)
-	c.NumberTotalCommittedBytes = prometheus.NewDesc(
+	c.numberTotalCommittedBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "committed_bytes"),
 		"Displays the amount of virtual memory, in bytes, currently committed by the garbage collector. Committed memory is the physical memory for which space has been reserved in the disk paging file.",
 		[]string{"process"},
 		nil,
 	)
-	c.NumberTotalreservedBytes = prometheus.NewDesc(
+	c.numberTotalReservedBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "reserved_bytes"),
 		"Displays the amount of virtual memory, in bytes, currently reserved by the garbage collector. Reserved memory is the virtual memory space reserved for the application when no disk or main memory pages have been used.",
 		[]string{"process"},
 		nil,
 	)
-	c.TimeinGC = prometheus.NewDesc(
+	c.timeInGC = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gc_time_percent"),
 		"Displays the percentage of time that was spent performing a garbage collection in the last sample.",
 		[]string{"process"},
@@ -138,9 +150,10 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting win32_perfrawdata_netframework_netclrmemory metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting win32_perfrawdata_netframework_netclrmemory metrics", "err", err)
 		return err
 	}
 	return nil
@@ -180,35 +193,33 @@ type Win32_PerfRawData_NETFramework_NETCLRMemory struct {
 	PromotedMemoryfromGen1             uint64
 }
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
 	var dst []Win32_PerfRawData_NETFramework_NETCLRMemory
-	q := wmi.QueryAll(&dst, c.logger)
-	if err := wmi.Query(q, &dst); err != nil {
+	if err := c.wmiClient.Query("SELECT * FROM Win32_PerfRawData_NETFramework_NETCLRMemory", &dst); err != nil {
 		return err
 	}
 
 	for _, process := range dst {
-
 		if process.Name == "_Global_" {
 			continue
 		}
 
 		ch <- prometheus.MustNewConstMetric(
-			c.AllocatedBytes,
+			c.allocatedBytes,
 			prometheus.CounterValue,
 			float64(process.AllocatedBytesPersec),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.FinalizationSurvivors,
+			c.finalizationSurvivors,
 			prometheus.GaugeValue,
 			float64(process.FinalizationSurvivors),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.HeapSize,
+			c.heapSize,
 			prometheus.GaugeValue,
 			float64(process.Gen0heapsize),
 			process.Name,
@@ -216,7 +227,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.PromotedBytes,
+			c.promotedBytes,
 			prometheus.GaugeValue,
 			float64(process.Gen0PromotedBytesPerSec),
 			process.Name,
@@ -224,7 +235,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.HeapSize,
+			c.heapSize,
 			prometheus.GaugeValue,
 			float64(process.Gen1heapsize),
 			process.Name,
@@ -232,7 +243,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.PromotedBytes,
+			c.promotedBytes,
 			prometheus.GaugeValue,
 			float64(process.Gen1PromotedBytesPerSec),
 			process.Name,
@@ -240,7 +251,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.HeapSize,
+			c.heapSize,
 			prometheus.GaugeValue,
 			float64(process.Gen2heapsize),
 			process.Name,
@@ -248,7 +259,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.HeapSize,
+			c.heapSize,
 			prometheus.GaugeValue,
 			float64(process.LargeObjectHeapsize),
 			process.Name,
@@ -256,14 +267,14 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberGCHandles,
+			c.numberGCHandles,
 			prometheus.GaugeValue,
 			float64(process.NumberGCHandles),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberCollections,
+			c.numberCollections,
 			prometheus.CounterValue,
 			float64(process.NumberGen0Collections),
 			process.Name,
@@ -271,7 +282,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberCollections,
+			c.numberCollections,
 			prometheus.CounterValue,
 			float64(process.NumberGen1Collections),
 			process.Name,
@@ -279,7 +290,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberCollections,
+			c.numberCollections,
 			prometheus.CounterValue,
 			float64(process.NumberGen2Collections),
 			process.Name,
@@ -287,42 +298,42 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberInducedGC,
+			c.numberInducedGC,
 			prometheus.CounterValue,
 			float64(process.NumberInducedGC),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberofPinnedObjects,
+			c.numberOfPinnedObjects,
 			prometheus.GaugeValue,
 			float64(process.NumberofPinnedObjects),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberofSinkBlocksinuse,
+			c.numberOfSinkBlocksInUse,
 			prometheus.GaugeValue,
 			float64(process.NumberofSinkBlocksinuse),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberTotalCommittedBytes,
+			c.numberTotalCommittedBytes,
 			prometheus.GaugeValue,
 			float64(process.NumberTotalcommittedBytes),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberTotalreservedBytes,
+			c.numberTotalReservedBytes,
 			prometheus.GaugeValue,
 			float64(process.NumberTotalreservedBytes),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.TimeinGC,
+			c.timeInGC,
 			prometheus.GaugeValue,
 			float64(100*process.PercentTimeinGC)/float64(process.PercentTimeinGC_base),
 			process.Name,

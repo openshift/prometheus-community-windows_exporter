@@ -12,7 +12,7 @@ import (
 
 type WTSTypeClass int
 
-// The valid values for the WTSTypeClass enumeration
+// The valid values for the WTSTypeClass enumeration.
 const (
 	WTSTypeProcessInfoLevel0 WTSTypeClass = iota
 	WTSTypeProcessInfoLevel1
@@ -129,19 +129,20 @@ func WTSOpenServer(server string) (syscall.Handle, error) {
 }
 
 func WTSCloseServer(server syscall.Handle) error {
-	_, _, err := procWTSCloseServer.Call(uintptr(server))
-	if err != nil {
+	r1, _, err := procWTSCloseServer.Call(uintptr(server))
+
+	if r1 != 1 {
 		return fmt.Errorf("failed to close server: %w", err)
 	}
 
-	return err
+	return nil
 }
 
-func WTSFreeMemoryEx(class WTSTypeClass, pMemory uintptr, NumberOfEntries uint32) error {
+func WTSFreeMemoryEx(class WTSTypeClass, pMemory uintptr, numberOfEntries uint32) error {
 	r1, _, err := procWTSFreeMemoryEx.Call(
 		uintptr(class),
 		pMemory,
-		uintptr(NumberOfEntries),
+		uintptr(numberOfEntries),
 	)
 
 	if r1 != 1 {
@@ -181,7 +182,7 @@ func WTSEnumerateSessionsEx(server syscall.Handle, logger log.Logger) ([]WTSSess
 	sessionSize := unsafe.Sizeof(sizeTest)
 
 	sessions := make([]WTSSession, 0, count)
-	for i := uint32(0); i < count; i++ {
+	for i := range count {
 		curPtr := unsafe.Pointer(sessionInfoPointer + (uintptr(i) * sessionSize))
 		data := (*wtsSessionInfo1)(curPtr)
 

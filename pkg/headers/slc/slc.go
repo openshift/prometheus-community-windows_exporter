@@ -12,7 +12,8 @@ var (
 	procSLIsWindowsGenuineLocal = slc.NewProc("SLIsWindowsGenuineLocal")
 )
 
-// Define SL_GENUINE_STATE enumeration
+// SL_GENUINE_STATE enumeration
+//
 // https://learn.microsoft.com/en-us/windows/win32/api/slpublic/ne-slpublic-sl_genuine_state
 type SL_GENUINE_STATE uint32
 
@@ -24,7 +25,7 @@ const (
 	SL_GEN_STATE_LAST
 )
 
-// SLIsWindowsGenuineLocal function wrapper
+// SLIsWindowsGenuineLocal function wrapper.
 func SLIsWindowsGenuineLocal() (SL_GENUINE_STATE, error) {
 	var genuineState SL_GENUINE_STATE
 

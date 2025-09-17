@@ -10,61 +10,50 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
+	"golang.org/x/sys/windows"
 )
 
-const (
-	Name = "logical_disk"
-
-	FlagLogicalDiskVolumeExclude = "collector.logical_disk.volume-exclude"
-	FlagLogicalDiskVolumeInclude = "collector.logical_disk.volume-include"
-)
+const Name = "logical_disk"
 
 type Config struct {
-	VolumeInclude string `yaml:"volume_include"`
-	VolumeExclude string `yaml:"volume_exclude"`
+	VolumeInclude *regexp.Regexp `yaml:"volume_include"`
+	VolumeExclude *regexp.Regexp `yaml:"volume_exclude"`
 }
 
 var ConfigDefaults = Config{
-	VolumeInclude: ".+",
-	VolumeExclude: "",
+	VolumeInclude: types.RegExpAny,
+	VolumeExclude: types.RegExpEmpty,
 }
 
-// A collector is a Prometheus collector for perflib logicalDisk metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for perflib logicalDisk metrics.
+type Collector struct {
+	config Config
 
-	volumeInclude *string
-	volumeExclude *string
-
-	Information      *prometheus.Desc
-	ReadOnly         *prometheus.Desc
-	RequestsQueued   *prometheus.Desc
-	AvgReadQueue     *prometheus.Desc
-	AvgWriteQueue    *prometheus.Desc
-	ReadBytesTotal   *prometheus.Desc
-	ReadsTotal       *prometheus.Desc
-	WriteBytesTotal  *prometheus.Desc
-	WritesTotal      *prometheus.Desc
-	ReadTime         *prometheus.Desc
-	WriteTime        *prometheus.Desc
-	TotalSpace       *prometheus.Desc
-	FreeSpace        *prometheus.Desc
-	IdleTime         *prometheus.Desc
-	SplitIOs         *prometheus.Desc
-	ReadLatency      *prometheus.Desc
-	WriteLatency     *prometheus.Desc
-	ReadWriteLatency *prometheus.Desc
-
-	volumeIncludePattern *regexp.Regexp
-	volumeExcludePattern *regexp.Regexp
+	avgReadQueue     *prometheus.Desc
+	avgWriteQueue    *prometheus.Desc
+	freeSpace        *prometheus.Desc
+	idleTime         *prometheus.Desc
+	information      *prometheus.Desc
+	readBytesTotal   *prometheus.Desc
+	readLatency      *prometheus.Desc
+	readOnly         *prometheus.Desc
+	readsTotal       *prometheus.Desc
+	readTime         *prometheus.Desc
+	readWriteLatency *prometheus.Desc
+	requestsQueued   *prometheus.Desc
+	splitIOs         *prometheus.Desc
+	totalSpace       *prometheus.Desc
+	writeBytesTotal  *prometheus.Desc
+	writeLatency     *prometheus.Desc
+	writesTotal      *prometheus.Desc
+	writeTime        *prometheus.Desc
 }
 
 type volumeInfo struct {
@@ -75,190 +64,208 @@ type volumeInfo struct {
 	readonly     float64
 }
 
-func New(logger log.Logger, config *Config) types.Collector {
+func New(config *Config) *Collector {
 	if config == nil {
 		config = &ConfigDefaults
 	}
 
-	c := &collector{
-		volumeExclude: &config.VolumeExclude,
-		volumeInclude: &config.VolumeInclude,
+	if config.VolumeExclude == nil {
+		config.VolumeExclude = ConfigDefaults.VolumeExclude
 	}
-	c.SetLogger(logger)
-	return c
-}
 
-func NewWithFlags(app *kingpin.Application) types.Collector {
-	c := &collector{
-		volumeInclude: app.Flag(
-			FlagLogicalDiskVolumeInclude,
-			"Regexp of volumes to include. Volume name must both match include and not match exclude to be included.",
-		).Default(ConfigDefaults.VolumeInclude).String(),
-		volumeExclude: app.Flag(
-			FlagLogicalDiskVolumeExclude,
-			"Regexp of volumes to exclude. Volume name must both match include and not match exclude to be included.",
-		).Default(ConfigDefaults.VolumeExclude).String(),
+	if config.VolumeInclude == nil {
+		config.VolumeInclude = ConfigDefaults.VolumeInclude
+	}
+
+	c := &Collector{
+		config: *config,
 	}
 
 	return c
 }
 
-func (c *collector) GetName() string {
+func NewWithFlags(app *kingpin.Application) *Collector {
+	c := &Collector{
+		config: ConfigDefaults,
+	}
+
+	var volumeExclude, volumeInclude string
+
+	app.Flag(
+		"collector.logical_disk.volume-exclude",
+		"Regexp of volumes to exclude. Volume name must both match include and not match exclude to be included.",
+	).Default(c.config.VolumeExclude.String()).StringVar(&volumeExclude)
+
+	app.Flag(
+		"collector.logical_disk.volume-include",
+		"Regexp of volumes to include. Volume name must both match include and not match exclude to be included.",
+	).Default(c.config.VolumeInclude.String()).StringVar(&volumeInclude)
+
+	app.Action(func(*kingpin.ParseContext) error {
+		var err error
+
+		c.config.VolumeExclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", volumeExclude))
+		if err != nil {
+			return fmt.Errorf("collector.logical_disk.volume-exclude: %w", err)
+		}
+
+		c.config.VolumeInclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", volumeInclude))
+		if err != nil {
+			return fmt.Errorf("collector.logical_disk.volume-include: %w", err)
+		}
+
+		return nil
+	})
+
+	return c
+}
+
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"LogicalDisk"}, nil
 }
 
-func (c *collector) Build() error {
-	c.Information = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.information = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "info"),
 		"A metric with a constant '1' value labeled with logical disk information",
 		[]string{"disk", "type", "volume", "volume_name", "filesystem", "serial_number"},
 		nil,
 	)
-	c.ReadOnly = prometheus.NewDesc(
+	c.readOnly = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "readonly"),
 		"Whether the logical disk is read-only",
 		[]string{"volume"},
 		nil,
 	)
-	c.RequestsQueued = prometheus.NewDesc(
+	c.requestsQueued = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "requests_queued"),
 		"The number of requests queued to the disk (LogicalDisk.CurrentDiskQueueLength)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.AvgReadQueue = prometheus.NewDesc(
+	c.avgReadQueue = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "avg_read_requests_queued"),
 		"Average number of read requests that were queued for the selected disk during the sample interval (LogicalDisk.AvgDiskReadQueueLength)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.AvgWriteQueue = prometheus.NewDesc(
+	c.avgWriteQueue = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "avg_write_requests_queued"),
 		"Average number of write requests that were queued for the selected disk during the sample interval (LogicalDisk.AvgDiskWriteQueueLength)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.ReadBytesTotal = prometheus.NewDesc(
+	c.readBytesTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "read_bytes_total"),
 		"The number of bytes transferred from the disk during read operations (LogicalDisk.DiskReadBytesPerSec)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.ReadsTotal = prometheus.NewDesc(
+	c.readsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "reads_total"),
 		"The number of read operations on the disk (LogicalDisk.DiskReadsPerSec)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.WriteBytesTotal = prometheus.NewDesc(
+	c.writeBytesTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "write_bytes_total"),
 		"The number of bytes transferred to the disk during write operations (LogicalDisk.DiskWriteBytesPerSec)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.WritesTotal = prometheus.NewDesc(
+	c.writesTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "writes_total"),
 		"The number of write operations on the disk (LogicalDisk.DiskWritesPerSec)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.ReadTime = prometheus.NewDesc(
+	c.readTime = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "read_seconds_total"),
 		"Seconds that the disk was busy servicing read requests (LogicalDisk.PercentDiskReadTime)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.WriteTime = prometheus.NewDesc(
+	c.writeTime = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "write_seconds_total"),
 		"Seconds that the disk was busy servicing write requests (LogicalDisk.PercentDiskWriteTime)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.FreeSpace = prometheus.NewDesc(
+	c.freeSpace = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "free_bytes"),
 		"Free space in bytes, updates every 10-15 min (LogicalDisk.PercentFreeSpace)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.TotalSpace = prometheus.NewDesc(
+	c.totalSpace = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "size_bytes"),
 		"Total space in bytes, updates every 10-15 min (LogicalDisk.PercentFreeSpace_Base)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.IdleTime = prometheus.NewDesc(
+	c.idleTime = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "idle_seconds_total"),
 		"Seconds that the disk was idle (LogicalDisk.PercentIdleTime)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.SplitIOs = prometheus.NewDesc(
+	c.splitIOs = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "split_ios_total"),
 		"The number of I/Os to the disk were split into multiple I/Os (LogicalDisk.SplitIOPerSec)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.ReadLatency = prometheus.NewDesc(
+	c.readLatency = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "read_latency_seconds_total"),
 		"Shows the average time, in seconds, of a read operation from the disk (LogicalDisk.AvgDiskSecPerRead)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.WriteLatency = prometheus.NewDesc(
+	c.writeLatency = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "write_latency_seconds_total"),
 		"Shows the average time, in seconds, of a write operation to the disk (LogicalDisk.AvgDiskSecPerWrite)",
 		[]string{"volume"},
 		nil,
 	)
 
-	c.ReadWriteLatency = prometheus.NewDesc(
+	c.readWriteLatency = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "read_write_latency_seconds_total"),
 		"Shows the time, in seconds, of the average disk transfer (LogicalDisk.AvgDiskSecPerTransfer)",
 		[]string{"volume"},
 		nil,
 	)
 
-	var err error
-	c.volumeIncludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.volumeInclude))
-	if err != nil {
-		return err
-	}
-
-	c.volumeExcludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.volumeExclude))
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
-	if err := c.collect(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting logical_disk metrics", "err", err)
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
+	if err := c.collect(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting logical_disk metrics", "err", err)
 		return err
 	}
 	return nil
@@ -266,7 +273,7 @@ func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 
 // Win32_PerfRawData_PerfDisk_LogicalDisk docs:
 // - https://msdn.microsoft.com/en-us/windows/hardware/aa394307(v=vs.71) - Win32_PerfRawData_PerfDisk_LogicalDisk class
-// - https://msdn.microsoft.com/en-us/library/ms803973.aspx - LogicalDisk object reference
+// - https://msdn.microsoft.com/en-us/library/ms803973.aspx - LogicalDisk object reference.
 type logicalDisk struct {
 	Name                    string
 	CurrentDiskQueueLength  float64 `perflib:"Current Disk Queue Length"`
@@ -287,7 +294,8 @@ type logicalDisk struct {
 	AvgDiskSecPerTransfer   float64 `perflib:"Avg. Disk sec/Transfer"`
 }
 
-func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	var (
 		err    error
 		diskID string
@@ -295,29 +303,29 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 		dst    []logicalDisk
 	)
 
-	if err = perflib.UnmarshalObject(ctx.PerfObjects["LogicalDisk"], &dst, c.logger); err != nil {
+	if err = perflib.UnmarshalObject(ctx.PerfObjects["LogicalDisk"], &dst, logger); err != nil {
 		return err
 	}
 
 	for _, volume := range dst {
 		if volume.Name == "_Total" ||
-			c.volumeExcludePattern.MatchString(volume.Name) ||
-			!c.volumeIncludePattern.MatchString(volume.Name) {
+			c.config.VolumeExclude.MatchString(volume.Name) ||
+			!c.config.VolumeInclude.MatchString(volume.Name) {
 			continue
 		}
 
 		diskID, err = getDiskIDByVolume(volume.Name)
 		if err != nil {
-			_ = level.Warn(c.logger).Log("msg", "failed to get disk ID for "+volume.Name, "err", err)
+			_ = level.Warn(logger).Log("msg", "failed to get disk ID for "+volume.Name, "err", err)
 		}
 
 		info, err = getVolumeInfo(volume.Name)
 		if err != nil {
-			_ = level.Warn(c.logger).Log("msg", "failed to get volume information for %s"+volume.Name, "err", err)
+			_ = level.Warn(logger).Log("msg", "failed to get volume information for %s"+volume.Name, "err", err)
 		}
 
 		ch <- prometheus.MustNewConstMetric(
-			c.Information,
+			c.information,
 			prometheus.GaugeValue,
 			1,
 			diskID,
@@ -329,112 +337,112 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.RequestsQueued,
+			c.requestsQueued,
 			prometheus.GaugeValue,
 			volume.CurrentDiskQueueLength,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.AvgReadQueue,
+			c.avgReadQueue,
 			prometheus.GaugeValue,
 			volume.AvgDiskReadQueueLength*perflib.TicksToSecondScaleFactor,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.AvgWriteQueue,
+			c.avgWriteQueue,
 			prometheus.GaugeValue,
 			volume.AvgDiskWriteQueueLength*perflib.TicksToSecondScaleFactor,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.ReadBytesTotal,
+			c.readBytesTotal,
 			prometheus.CounterValue,
 			volume.DiskReadBytesPerSec,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.ReadsTotal,
+			c.readsTotal,
 			prometheus.CounterValue,
 			volume.DiskReadsPerSec,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.WriteBytesTotal,
+			c.writeBytesTotal,
 			prometheus.CounterValue,
 			volume.DiskWriteBytesPerSec,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.WritesTotal,
+			c.writesTotal,
 			prometheus.CounterValue,
 			volume.DiskWritesPerSec,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.ReadTime,
+			c.readTime,
 			prometheus.CounterValue,
 			volume.PercentDiskReadTime,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.WriteTime,
+			c.writeTime,
 			prometheus.CounterValue,
 			volume.PercentDiskWriteTime,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.FreeSpace,
+			c.freeSpace,
 			prometheus.GaugeValue,
 			volume.PercentFreeSpace_Base*1024*1024,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.TotalSpace,
+			c.totalSpace,
 			prometheus.GaugeValue,
 			volume.PercentFreeSpace*1024*1024,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.IdleTime,
+			c.idleTime,
 			prometheus.CounterValue,
 			volume.PercentIdleTime,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.SplitIOs,
+			c.splitIOs,
 			prometheus.CounterValue,
 			volume.SplitIOPerSec,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.ReadLatency,
+			c.readLatency,
 			prometheus.CounterValue,
 			volume.AvgDiskSecPerRead*perflib.TicksToSecondScaleFactor,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.WriteLatency,
+			c.writeLatency,
 			prometheus.CounterValue,
 			volume.AvgDiskSecPerWrite*perflib.TicksToSecondScaleFactor,
 			volume.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.ReadWriteLatency,
+			c.readWriteLatency,
 			prometheus.CounterValue,
 			volume.AvgDiskSecPerTransfer*perflib.TicksToSecondScaleFactor,
 			volume.Name,
@@ -480,7 +488,6 @@ func getDiskIDByVolume(rootDrive string) (string, error) {
 	f, err = windows.CreateFile(
 		windows.StringToUTF16Ptr(`\\.\`+rootDrive),
 		0, mode, nil, windows.OPEN_EXISTING, uint32(windows.FILE_ATTRIBUTE_READONLY), 0)
-
 	if err != nil {
 		return "", err
 	}
@@ -529,7 +536,6 @@ func getVolumeInfo(rootDrive string) (volumeInfo, error) {
 
 	err := windows.GetVolumeInformation(volPath, &volBufLabel[0], uint32(len(volBufLabel)),
 		&volSerialNum, nil, &fsFlags, &volBufType[0], uint32(len(volBufType)))
-
 	if err != nil {
 		if driveType != windows.DRIVE_CDROM && driveType != windows.DRIVE_REMOVABLE {
 			return volumeInfo{}, err

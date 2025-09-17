@@ -3,12 +3,14 @@
 package netframework_clrsecurity
 
 import (
+	"errors"
+
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "netframework_clrsecurity"
@@ -17,58 +19,70 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI Win32_PerfRawData_NETFramework_NETCLRSecurity metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI Win32_PerfRawData_NETFramework_NETCLRSecurity metrics.
+type Collector struct {
+	config    Config
+	wmiClient *wmi.Client
 
-	NumberLinkTimeChecks *prometheus.Desc
-	TimeinRTchecks       *prometheus.Desc
-	StackWalkDepth       *prometheus.Desc
-	TotalRuntimeChecks   *prometheus.Desc
+	numberLinkTimeChecks *prometheus.Desc
+	timeInRTChecks       *prometheus.Desc
+	stackWalkDepth       *prometheus.Desc
+	totalRuntimeChecks   *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	c.NumberLinkTimeChecks = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, wmiClient *wmi.Client) error {
+	if wmiClient == nil || wmiClient.SWbemServicesClient == nil {
+		return errors.New("wmiClient or SWbemServicesClient is nil")
+	}
+
+	c.wmiClient = wmiClient
+	c.numberLinkTimeChecks = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "link_time_checks_total"),
 		"Displays the total number of link-time code access security checks since the application started.",
 		[]string{"process"},
 		nil,
 	)
-	c.TimeinRTchecks = prometheus.NewDesc(
+	c.timeInRTChecks = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "rt_checks_time_percent"),
 		"Displays the percentage of time spent performing runtime code access security checks in the last sample.",
 		[]string{"process"},
 		nil,
 	)
-	c.StackWalkDepth = prometheus.NewDesc(
+	c.stackWalkDepth = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "stack_walk_depth"),
 		"Displays the depth of the stack during that last runtime code access security check.",
 		[]string{"process"},
 		nil,
 	)
-	c.TotalRuntimeChecks = prometheus.NewDesc(
+	c.totalRuntimeChecks = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "runtime_checks_total"),
 		"Displays the total number of runtime code access security checks performed since the application started.",
 		[]string{"process"},
@@ -79,9 +93,10 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting win32_perfrawdata_netframework_netclrsecurity metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting win32_perfrawdata_netframework_netclrsecurity metrics", "err", err)
 		return err
 	}
 	return nil
@@ -98,42 +113,40 @@ type Win32_PerfRawData_NETFramework_NETCLRSecurity struct {
 	TotalRuntimeChecks           uint32
 }
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
 	var dst []Win32_PerfRawData_NETFramework_NETCLRSecurity
-	q := wmi.QueryAll(&dst, c.logger)
-	if err := wmi.Query(q, &dst); err != nil {
+	if err := c.wmiClient.Query("SELECT * FROM Win32_PerfRawData_NETFramework_NETCLRSecurity", &dst); err != nil {
 		return err
 	}
 
 	for _, process := range dst {
-
 		if process.Name == "_Global_" {
 			continue
 		}
 
 		ch <- prometheus.MustNewConstMetric(
-			c.NumberLinkTimeChecks,
+			c.numberLinkTimeChecks,
 			prometheus.CounterValue,
 			float64(process.NumberLinkTimeChecks),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.TimeinRTchecks,
+			c.timeInRTChecks,
 			prometheus.GaugeValue,
 			float64(process.PercentTimeinRTchecks)/float64(process.Frequency_PerfTime),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.StackWalkDepth,
+			c.stackWalkDepth,
 			prometheus.GaugeValue,
 			float64(process.StackWalkDepth),
 			process.Name,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.TotalRuntimeChecks,
+			c.totalRuntimeChecks,
 			prometheus.CounterValue,
 			float64(process.TotalRuntimeChecks),
 			process.Name,

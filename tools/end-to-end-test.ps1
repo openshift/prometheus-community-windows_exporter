@@ -18,14 +18,14 @@ mkdir $textfile_dir | Out-Null
 Copy-Item 'e2e-textfile.prom' -Destination "$($textfile_dir)/e2e-textfile.prom"
 
 # Omit dynamic collector information that will change after each run
-$skip_re = "^(go_|windows_exporter_build_info|windows_exporter_collector_duration_seconds|windows_exporter_perflib_snapshot_duration_seconds|process_|windows_textfile_mtime_seconds|windows_cpu|windows_cs|windows_logical_disk|windows_physical_disk|windows_net|windows_os|windows_service|windows_system|windows_textfile_mtime_seconds)"
+$skip_re = "^(go_|windows_exporter_build_info|windows_exporter_collector_duration_seconds|windows_exporter_perflib_snapshot_duration_seconds|process_|windows_textfile_mtime_seconds|windows_cpu|windows_cs|windows_logical_disk|windows_physical_disk|windows_net|windows_os|windows_process|windows_service|windows_system|windows_textfile_mtime_seconds)"
 
 # Start process in background, awaiting HTTP requests.
 # Use default collectors, port and address: http://localhost:9182/metrics
 $exporter_proc = Start-Process `
     -PassThru `
     -FilePath ..\windows_exporter.exe `
-    -ArgumentList "--log.level=debug --web.disable-exporter-metrics --collector.textfile.directories=$($textfile_dir)" `
+    -ArgumentList "--log.level=debug --web.disable-exporter-metrics --collectors.enabled=[defaults],cpu_info,textfile,process,scheduled_task --collector.process.include=explorer.exe --collector.scheduled_task.include=.*WinSAT --collector.textfile.directories=$($textfile_dir)" `
     -WindowStyle Hidden `
     -RedirectStandardOutput "$($temp_dir)/windows_exporter.log" `
     -RedirectStandardError "$($temp_dir)/windows_exporter_error.log"
@@ -36,12 +36,21 @@ for ($i=1; $i -le 5; $i++) {
 
     $netstat_output = netstat -anp tcp | Select-String 'listening'
     if ($netstat_output -like '*:9182*') {
-            break
+        break
     }
     Write-Host "Waiting for exporter to start"
 }
 
-$response = Invoke-WebRequest -UseBasicParsing -URI http://127.0.0.1:9182/metrics
+try {
+    $response = Invoke-WebRequest -UseBasicParsing -URI http://127.0.0.1:9182/metrics
+} catch {
+    Write-Host "STDOUT"
+    Get-Content "$($temp_dir)/windows_exporter.log"
+    Write-Host "STDERR"
+    Get-Content "$($temp_dir)/windows_exporter_error.log"
+
+    throw $_
+}
 # Response output must be split and saved as UTF-8.
 $response.content -split "[`r`n]"| Select-String -NotMatch $skip_re | Set-Content -Encoding utf8 "$($temp_dir)/e2e-output.txt"
 Stop-Process -Id $exporter_proc.Id
@@ -55,5 +64,6 @@ if (-not ($null -eq $output_diff)) {
     Get-Content "$($temp_dir)/windows_exporter.log"
     Write-Host "STDERR"
     Get-Content "$($temp_dir)/windows_exporter_error.log"
+
     exit 1
 }

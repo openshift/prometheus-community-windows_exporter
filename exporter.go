@@ -4,41 +4,42 @@
 
 package main
 
+//goland:noinspection GoUnsortedImport
+//nolint:gofumpt
 import (
-	// Its important that we do these first so that we can register with the Windows service control ASAP to avoid timeouts
+	// Its important that we do these first so that we can register with the Windows service control ASAP to avoid timeouts.
 	"github.com/prometheus-community/windows_exporter/pkg/initiate"
 
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"os/signal"
 	"os/user"
 	"runtime"
 	"sort"
 	"strings"
-
-	winlog "github.com/prometheus-community/windows_exporter/pkg/log"
-	"github.com/prometheus-community/windows_exporter/pkg/types"
-	"github.com/prometheus-community/windows_exporter/pkg/utils"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
+	"time"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/collector"
 	"github.com/prometheus-community/windows_exporter/pkg/config"
+	winlog "github.com/prometheus-community/windows_exporter/pkg/log"
 	"github.com/prometheus-community/windows_exporter/pkg/log/flag"
+	"github.com/prometheus-community/windows_exporter/pkg/types"
+	"github.com/prometheus-community/windows_exporter/pkg/utils"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
 	webflag "github.com/prometheus/exporter-toolkit/web/kingpinflag"
 	"golang.org/x/sys/windows"
 )
 
-// https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
-const PROCESS_ALL_ACCESS = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | windows.SPECIFIC_RIGHTS_ALL
-
 // Same struct prometheus uses for their /version endpoint.
-// Separate copy to avoid pulling all of prometheus as a dependency
+// Separate copy to avoid pulling all of prometheus as a dependency.
 type prometheusVersion struct {
 	Version   string `json:"version"`
 	Revision  string `json:"revision"`
@@ -48,7 +49,7 @@ type prometheusVersion struct {
 	GoVersion string `json:"goVersion"`
 }
 
-// Mapping of priority names to uin32 values required by windows.SetPriorityClass
+// Mapping of priority names to uin32 values required by windows.SetPriorityClass.
 var priorityStringToInt = map[string]uint32{
 	"realtime":    windows.REALTIME_PRIORITY_CLASS,
 	"high":        windows.HIGH_PRIORITY_CLASS,
@@ -59,16 +60,21 @@ var priorityStringToInt = map[string]uint32{
 }
 
 func setPriorityWindows(pid int, priority uint32) error {
-	handle, err := windows.OpenProcess(PROCESS_ALL_ACCESS, false, uint32(pid))
+	// https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+	handle, err := windows.OpenProcess(
+		windows.STANDARD_RIGHTS_REQUIRED|windows.SYNCHRONIZE|windows.SPECIFIC_RIGHTS_ALL,
+		false, uint32(pid),
+	)
 	if err != nil {
 		return err
 	}
-	//nolint:errcheck
-	defer windows.CloseHandle(handle) // Technically this can fail, but we ignore it
 
-	err = windows.SetPriorityClass(handle, priority)
-	if err != nil {
+	if err = windows.SetPriorityClass(handle, priority); err != nil {
 		return err
+	}
+
+	if err = windows.CloseHandle(handle); err != nil {
+		return fmt.Errorf("failed to close handle: %w", err)
 	}
 
 	return nil
@@ -81,7 +87,7 @@ func main() {
 			"config.file",
 			"YAML configuration file to use. Values set in this file will be overridden by CLI flags.",
 		).String()
-		insecure_skip_verify = app.Flag(
+		insecureSkipVerify = app.Flag(
 			"config.file.insecure-skip-verify",
 			"Skip TLS verification in loading YAML configuration.",
 		).Default("false").Bool()
@@ -141,7 +147,7 @@ func main() {
 	_ = level.Debug(logger).Log("msg", "Logging has Started")
 
 	if *configFile != "" {
-		resolver, err := config.NewResolver(*configFile, logger, *insecure_skip_verify)
+		resolver, err := config.NewResolver(*configFile, logger, *insecureSkipVerify)
 		if err != nil {
 			_ = level.Error(logger).Log("msg", "could not load config file", "err", err)
 			os.Exit(1)
@@ -171,9 +177,9 @@ func main() {
 		collectorNames := collector.Available()
 		sort.Strings(collectorNames)
 
-		fmt.Printf("Available collectors:\n")
+		fmt.Printf("Available collectors:\n") //nolint:forbidigo
 		for _, n := range collectorNames {
-			fmt.Printf(" - %s\n", n)
+			fmt.Printf(" - %s\n", n) //nolint:forbidigo
 		}
 
 		return
@@ -189,22 +195,16 @@ func main() {
 		}
 	}
 
-	if err = wmi.InitWbem(logger); err != nil {
-		_ = level.Error(logger).Log("err", err)
-		os.Exit(1)
-	}
-
 	enabledCollectorList := utils.ExpandEnabledCollectors(*enabledCollectors)
 	collectors.Enable(enabledCollectorList)
-	collectors.SetLogger(logger)
 
 	// Initialize collectors before loading
-	err = collectors.Build()
+	err = collectors.Build(logger)
 	if err != nil {
 		_ = level.Error(logger).Log("msg", "Couldn't load collectors", "err", err)
 		os.Exit(1)
 	}
-	err = collectors.SetPerfCounterQuery()
+	err = collectors.SetPerfCounterQuery(logger)
 	if err != nil {
 		_ = level.Error(logger).Log("msg", "Couldn't set performance counter query", "err", err)
 		os.Exit(1)
@@ -223,7 +223,7 @@ func main() {
 	_ = level.Info(logger).Log("msg", fmt.Sprintf("Enabled collectors: %v", strings.Join(enabledCollectorList, ", ")))
 
 	mux := http.NewServeMux()
-	mux.HandleFunc(*metricsPath, withConcurrencyLimit(*maxRequests, collectors.BuildServeHTTP(*disableExporterMetrics, *timeoutMargin)))
+	mux.HandleFunc(*metricsPath, withConcurrencyLimit(*maxRequests, collectors.BuildServeHTTP(logger, *disableExporterMetrics, *timeoutMargin)))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, err := fmt.Fprintln(w, `{"status":"ok"}`)
@@ -259,20 +259,37 @@ func main() {
 	_ = level.Info(logger).Log("msg", "Build context", "build_context", version.BuildContext())
 	_ = level.Debug(logger).Log("msg", "Go MAXPROCS", "procs", runtime.GOMAXPROCS(0))
 
+	server := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Minute,
+		Handler:           mux,
+	}
+
 	go func() {
-		server := &http.Server{Handler: mux}
-		if err := web.ListenAndServe(server, webConfig, logger); err != nil {
+		if err := web.ListenAndServe(server, webConfig, logger); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			_ = level.Error(logger).Log("msg", "cannot start windows_exporter", "err", err)
 			os.Exit(1)
 		}
 	}()
 
-	for {
-		if <-initiate.StopCh {
-			_ = level.Info(logger).Log("msg", "Shutting down windows_exporter")
-			break
-		}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer stop()
+
+	select {
+	case <-ctx.Done():
+		_ = level.Info(logger).Log("msg", "Shutting down windows_exporter via kill signal")
+	case <-initiate.StopCh:
+		_ = level.Info(logger).Log("msg", "Shutting down windows_exporter via service control")
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_ = server.Shutdown(ctx)
+
+	_ = level.Info(logger).Log("msg", "windows_exporter has shut down")
 }
 
 func withConcurrencyLimit(n int, next http.HandlerFunc) http.HandlerFunc {

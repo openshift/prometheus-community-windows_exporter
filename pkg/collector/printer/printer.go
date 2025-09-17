@@ -3,6 +3,7 @@
 package printer
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,18 +11,12 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/prometheus-community/windows_exporter/pkg/types"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
-const (
-	Name = "printer"
-
-	FlagPrinterInclude = "collector.printer.include"
-	FlagPrinterExclude = "collector.printer.exclude"
-)
+const Name = "printer"
 
 // printerStatusMap source: https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-printer#:~:text=Power%20Save-,PrinterStatus,Offline%20(7),-PrintJobDataType
 var printerStatusMap = map[uint16]string{
@@ -35,60 +30,91 @@ var printerStatusMap = map[uint16]string{
 }
 
 type Config struct {
-	Include string `yaml:"printer_include"`
-	Exclude string `yaml:"printer_exclude"`
+	PrinterInclude *regexp.Regexp `yaml:"printer_include"`
+	PrinterExclude *regexp.Regexp `yaml:"printer_exclude"`
 }
 
 var ConfigDefaults = Config{
-	Include: ".+",
-	Exclude: "",
+	PrinterInclude: types.RegExpAny,
+	PrinterExclude: types.RegExpEmpty,
 }
 
-type collector struct {
-	logger log.Logger
-
-	printerInclude *string
-	printerExclude *string
+type Collector struct {
+	config    Config
+	wmiClient *wmi.Client
 
 	printerStatus    *prometheus.Desc
 	printerJobStatus *prometheus.Desc
 	printerJobCount  *prometheus.Desc
-
-	printerIncludePattern *regexp.Regexp
-	printerExcludePattern *regexp.Regexp
 }
 
-func New(logger log.Logger, config *Config) types.Collector {
+func New(config *Config) *Collector {
 	if config == nil {
 		config = &ConfigDefaults
 	}
-	c := &collector{
-		printerInclude: &config.Include,
-		printerExclude: &config.Exclude,
+
+	if config.PrinterExclude == nil {
+		config.PrinterExclude = ConfigDefaults.PrinterExclude
 	}
-	c.SetLogger(logger)
+
+	if config.PrinterInclude == nil {
+		config.PrinterInclude = ConfigDefaults.PrinterInclude
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(app *kingpin.Application) types.Collector {
-	c := &collector{
-		printerInclude: app.Flag(
-			FlagPrinterInclude,
-			"Regular expression to match printers to collect metrics for",
-		).Default(ConfigDefaults.Include).String(),
-		printerExclude: app.Flag(
-			FlagPrinterExclude,
-			"Regular expression to match printers to exclude",
-		).Default(ConfigDefaults.Exclude).String(),
+func NewWithFlags(app *kingpin.Application) *Collector {
+	c := &Collector{
+		config: ConfigDefaults,
 	}
+
+	var printerInclude, printerExclude string
+
+	app.Flag(
+		"collector.printer.include",
+		"Regular expression to match printers to collect metrics for",
+	).Default(c.config.PrinterInclude.String()).StringVar(&printerInclude)
+
+	app.Flag(
+		"collector.printer.exclude",
+		"Regular expression to match printers to exclude",
+	).Default(c.config.PrinterExclude.String()).StringVar(&printerExclude)
+
+	app.Action(func(*kingpin.ParseContext) error {
+		var err error
+
+		c.config.PrinterInclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", printerInclude))
+		if err != nil {
+			return fmt.Errorf("collector.printer.include: %w", err)
+		}
+
+		c.config.PrinterExclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", printerExclude))
+		if err != nil {
+			return fmt.Errorf("collector.printer.exclude: %w", err)
+		}
+
+		return nil
+	})
+
 	return c
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
+func (c *Collector) Close() error {
+	return nil
 }
 
-func (c *collector) Build() error {
+func (c *Collector) Build(_ log.Logger, wmiClient *wmi.Client) error {
+	if wmiClient == nil || wmiClient.SWbemServicesClient == nil {
+		return errors.New("wmiClient or SWbemServicesClient is nil")
+	}
+
+	c.wmiClient = wmiClient
+
 	c.printerJobStatus = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "job_status"),
 		"A counter of printer jobs by status",
@@ -108,53 +134,49 @@ func (c *collector) Build() error {
 		nil,
 	)
 
-	var err error
-	c.printerIncludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.printerInclude))
-	if err != nil {
-		return err
-	}
-	c.printerExcludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.printerExclude))
-	return err
+	return nil
 }
 
-func (c *collector) GetName() string { return Name }
+func (c *Collector) GetName() string { return Name }
 
-func (c *collector) GetPerfCounter() ([]string, error) { return []string{"Printer"}, nil }
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) { return []string{"Printer"}, nil }
 
-type win32_Printer struct {
+type wmiPrinter struct {
 	Name                   string
 	Default                bool
 	PrinterStatus          uint16
 	JobCountSinceLastReset uint32
 }
 
-type win32_PrintJob struct {
+type wmiPrintJob struct {
 	Name   string
 	Status string
 }
 
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collectPrinterStatus(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed to collect printer status metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed to collect printer status metrics", "err", err)
 		return err
 	}
+
 	if err := c.collectPrinterJobStatus(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed to collect printer job status metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed to collect printer job status metrics", "err", err)
 		return err
 	}
+
 	return nil
 }
 
-func (c *collector) collectPrinterStatus(ch chan<- prometheus.Metric) error {
-	var printers []win32_Printer
-	q := wmi.QueryAll(&printers, c.logger)
-	if err := wmi.Query(q, &printers); err != nil {
+func (c *Collector) collectPrinterStatus(ch chan<- prometheus.Metric) error {
+	var printers []wmiPrinter
+	if err := c.wmiClient.Query("SELECT * FROM win32_Printer", &printers); err != nil {
 		return err
 	}
 
 	for _, printer := range printers {
-		if c.printerExcludePattern.MatchString(printer.Name) ||
-			!c.printerIncludePattern.MatchString(printer.Name) {
+		if c.config.PrinterExclude.MatchString(printer.Name) ||
+			!c.config.PrinterInclude.MatchString(printer.Name) {
 			continue
 		}
 
@@ -184,10 +206,9 @@ func (c *collector) collectPrinterStatus(ch chan<- prometheus.Metric) error {
 	return nil
 }
 
-func (c *collector) collectPrinterJobStatus(ch chan<- prometheus.Metric) error {
-	var printJobs []win32_PrintJob
-	q := wmi.QueryAll(&printJobs, c.logger)
-	if err := wmi.Query(q, &printJobs); err != nil {
+func (c *Collector) collectPrinterJobStatus(ch chan<- prometheus.Metric) error {
+	var printJobs []wmiPrintJob
+	if err := c.wmiClient.Query("SELECT * FROM win32_PrintJob", &printJobs); err != nil {
 		return err
 	}
 
@@ -201,6 +222,7 @@ func (c *collector) collectPrinterJobStatus(ch chan<- prometheus.Metric) error {
 			group.status,
 		)
 	}
+
 	return nil
 }
 
@@ -209,19 +231,22 @@ type PrintJobStatusGroup struct {
 	status      string
 }
 
-func (c *collector) groupPrintJobs(printJobs []win32_PrintJob) map[PrintJobStatusGroup]int {
+func (c *Collector) groupPrintJobs(printJobs []wmiPrintJob) map[PrintJobStatusGroup]int {
 	groupedPrintJobs := make(map[PrintJobStatusGroup]int)
+
 	for _, printJob := range printJobs {
 		printerName := strings.Split(printJob.Name, ",")[0]
 
-		if c.printerExcludePattern.MatchString(printerName) ||
-			!c.printerIncludePattern.MatchString(printerName) {
+		if c.config.PrinterExclude.MatchString(printerName) ||
+			!c.config.PrinterInclude.MatchString(printerName) {
 			continue
 		}
+
 		groupedPrintJobs[PrintJobStatusGroup{
 			printerName: printerName,
 			status:      printJob.Status,
 		}]++
 	}
+
 	return groupedPrintJobs
 }

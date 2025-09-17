@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "system"
@@ -17,72 +18,78 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI metrics.
+type Collector struct {
+	config Config
 
-	ContextSwitchesTotal     *prometheus.Desc
-	ExceptionDispatchesTotal *prometheus.Desc
-	ProcessorQueueLength     *prometheus.Desc
-	SystemCallsTotal         *prometheus.Desc
-	SystemUpTime             *prometheus.Desc
-	Threads                  *prometheus.Desc
+	contextSwitchesTotal     *prometheus.Desc
+	exceptionDispatchesTotal *prometheus.Desc
+	processorQueueLength     *prometheus.Desc
+	systemCallsTotal         *prometheus.Desc
+	systemUpTime             *prometheus.Desc
+	threads                  *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"System"}, nil
 }
 
-func (c *collector) Build() error {
-	c.ContextSwitchesTotal = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.contextSwitchesTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "context_switches_total"),
 		"Total number of context switches (WMI source: PerfOS_System.ContextSwitchesPersec)",
 		nil,
 		nil,
 	)
-	c.ExceptionDispatchesTotal = prometheus.NewDesc(
+	c.exceptionDispatchesTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "exception_dispatches_total"),
 		"Total number of exceptions dispatched (WMI source: PerfOS_System.ExceptionDispatchesPersec)",
 		nil,
 		nil,
 	)
-	c.ProcessorQueueLength = prometheus.NewDesc(
+	c.processorQueueLength = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "processor_queue_length"),
 		"Length of processor queue (WMI source: PerfOS_System.ProcessorQueueLength)",
 		nil,
 		nil,
 	)
-	c.SystemCallsTotal = prometheus.NewDesc(
+	c.systemCallsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "system_calls_total"),
 		"Total number of system calls (WMI source: PerfOS_System.SystemCallsPersec)",
 		nil,
 		nil,
 	)
-	c.SystemUpTime = prometheus.NewDesc(
+	c.systemUpTime = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "system_up_time"),
 		"System boot time (WMI source: PerfOS_System.SystemUpTime)",
 		nil,
 		nil,
 	)
-	c.Threads = prometheus.NewDesc(
+	c.threads = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "threads"),
 		"Current number of threads (WMI source: PerfOS_System.Threads)",
 		nil,
@@ -93,9 +100,10 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
-	if err := c.collect(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting system metrics", "err", err)
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
+	if err := c.collect(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting system metrics", "err", err)
 		return err
 	}
 	return nil
@@ -112,39 +120,40 @@ type system struct {
 	Threads                   float64 `perflib:"Threads"`
 }
 
-func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	var dst []system
-	if err := perflib.UnmarshalObject(ctx.PerfObjects["System"], &dst, c.logger); err != nil {
+	if err := perflib.UnmarshalObject(ctx.PerfObjects["System"], &dst, logger); err != nil {
 		return err
 	}
 
 	ch <- prometheus.MustNewConstMetric(
-		c.ContextSwitchesTotal,
+		c.contextSwitchesTotal,
 		prometheus.CounterValue,
 		dst[0].ContextSwitchesPersec,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.ExceptionDispatchesTotal,
+		c.exceptionDispatchesTotal,
 		prometheus.CounterValue,
 		dst[0].ExceptionDispatchesPersec,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.ProcessorQueueLength,
+		c.processorQueueLength,
 		prometheus.GaugeValue,
 		dst[0].ProcessorQueueLength,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.SystemCallsTotal,
+		c.systemCallsTotal,
 		prometheus.CounterValue,
 		dst[0].SystemCallsPersec,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.SystemUpTime,
+		c.systemUpTime,
 		prometheus.GaugeValue,
 		dst[0].SystemUpTime,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.Threads,
+		c.threads,
 		prometheus.GaugeValue,
 		dst[0].Threads,
 	)
