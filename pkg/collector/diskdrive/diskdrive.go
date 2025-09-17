@@ -10,8 +10,8 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const (
@@ -23,41 +23,53 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for a few WMI metrics in Win32_DiskDrive
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for a few WMI metrics in Win32_DiskDrive.
+type Collector struct {
+	config    Config
+	wmiClient *wmi.Client
 
-	DiskInfo     *prometheus.Desc
-	Status       *prometheus.Desc
-	Size         *prometheus.Desc
-	Partitions   *prometheus.Desc
-	Availability *prometheus.Desc
+	availability *prometheus.Desc
+	diskInfo     *prometheus.Desc
+	partitions   *prometheus.Desc
+	size         *prometheus.Desc
+	status       *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	c.DiskInfo = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, wmiClient *wmi.Client) error {
+	if wmiClient == nil || wmiClient.SWbemServicesClient == nil {
+		return errors.New("wmiClient or SWbemServicesClient is nil")
+	}
+
+	c.wmiClient = wmiClient
+	c.diskInfo = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "info"),
 		"General drive information",
 		[]string{
@@ -68,25 +80,25 @@ func (c *collector) Build() error {
 		},
 		nil,
 	)
-	c.Status = prometheus.NewDesc(
+	c.status = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "status"),
 		"Status of the drive",
 		[]string{"name", "status"},
 		nil,
 	)
-	c.Size = prometheus.NewDesc(
+	c.size = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "size"),
 		"Size of the disk drive. It is calculated by multiplying the total number of cylinders, tracks in each cylinder, sectors in each track, and bytes in each sector.",
 		[]string{"name"},
 		nil,
 	)
-	c.Partitions = prometheus.NewDesc(
+	c.partitions = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "partitions"),
 		"Number of partitions",
 		[]string{"name"},
 		nil,
 	)
-	c.Availability = prometheus.NewDesc(
+	c.availability = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "availability"),
 		"Availability Status",
 		[]string{"name", "availability"},
@@ -96,7 +108,7 @@ func (c *collector) Build() error {
 	return nil
 }
 
-type Win32_DiskDrive struct {
+type win32_DiskDrive struct {
 	DeviceID     string
 	Model        string
 	Size         uint64
@@ -149,18 +161,19 @@ var (
 )
 
 // Collect sends the metric values for each metric to the provided prometheus Metric channel.
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting disk_drive_info metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting disk_drive_info metrics", "err", err)
 		return err
 	}
 	return nil
 }
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
-	var dst []Win32_DiskDrive
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
+	var dst []win32_DiskDrive
 
-	if err := wmi.Query(win32DiskQuery, &dst); err != nil {
+	if err := c.wmiClient.Query(win32DiskQuery, &dst); err != nil {
 		return err
 	}
 	if len(dst) == 0 {
@@ -169,13 +182,13 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 
 	for _, disk := range dst {
 		ch <- prometheus.MustNewConstMetric(
-			c.DiskInfo,
+			c.diskInfo,
 			prometheus.GaugeValue,
 			1.0,
-			strings.Trim(disk.DeviceID, "\\.\\"),
+			strings.Trim(disk.DeviceID, "\\.\\"), //nolint:staticcheck
 			strings.TrimRight(disk.Model, " "),
 			strings.TrimRight(disk.Caption, " "),
-			strings.TrimRight(disk.Name, "\\.\\"),
+			strings.TrimRight(disk.Name, "\\.\\"), //nolint:staticcheck
 		)
 
 		for _, status := range allDiskStatus {
@@ -185,26 +198,26 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 			}
 
 			ch <- prometheus.MustNewConstMetric(
-				c.Status,
+				c.status,
 				prometheus.GaugeValue,
 				isCurrentState,
-				strings.Trim(disk.Name, "\\.\\"),
+				strings.Trim(disk.Name, "\\.\\"), //nolint:staticcheck
 				status,
 			)
 		}
 
 		ch <- prometheus.MustNewConstMetric(
-			c.Size,
+			c.size,
 			prometheus.GaugeValue,
 			float64(disk.Size),
-			strings.Trim(disk.Name, "\\.\\"),
+			strings.Trim(disk.Name, "\\.\\"), //nolint:staticcheck
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.Partitions,
+			c.partitions,
 			prometheus.GaugeValue,
 			float64(disk.Partitions),
-			strings.Trim(disk.Name, "\\.\\"),
+			strings.Trim(disk.Name, "\\.\\"), //nolint:staticcheck
 		)
 
 		for availNum, val := range availMap {
@@ -213,10 +226,10 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 				isCurrentState = 1.0
 			}
 			ch <- prometheus.MustNewConstMetric(
-				c.Availability,
+				c.availability,
 				prometheus.GaugeValue,
 				isCurrentState,
-				strings.Trim(disk.Name, "\\.\\"),
+				strings.Trim(disk.Name, "\\.\\"), //nolint:staticcheck
 				val,
 			)
 		}

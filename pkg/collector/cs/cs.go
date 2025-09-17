@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/headers/sysinfoapi"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "cs"
@@ -17,51 +18,57 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI metrics.
+type Collector struct {
+	config Config
 
-	PhysicalMemoryBytes *prometheus.Desc
-	LogicalProcessors   *prometheus.Desc
-	Hostname            *prometheus.Desc
+	physicalMemoryBytes *prometheus.Desc
+	logicalProcessors   *prometheus.Desc
+	hostname            *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	c.LogicalProcessors = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.logicalProcessors = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "logical_processors"),
 		"ComputerSystem.NumberOfLogicalProcessors",
 		nil,
 		nil,
 	)
-	c.PhysicalMemoryBytes = prometheus.NewDesc(
+	c.physicalMemoryBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "physical_memory_bytes"),
 		"ComputerSystem.TotalPhysicalMemory",
 		nil,
 		nil,
 	)
-	c.Hostname = prometheus.NewDesc(
+	c.hostname = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "hostname"),
 		"Labelled system hostname information as provided by ComputerSystem.DNSHostName and ComputerSystem.Domain",
 		[]string{
@@ -76,15 +83,16 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting cs metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting cs metrics", "err", err)
 		return err
 	}
 	return nil
 }
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
 	// Get systeminfo for number of processors
 	systemInfo := sysinfoapi.GetSystemInfo()
 
@@ -95,13 +103,13 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 	}
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogicalProcessors,
+		c.logicalProcessors,
 		prometheus.GaugeValue,
 		float64(systemInfo.NumberOfProcessors),
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.PhysicalMemoryBytes,
+		c.physicalMemoryBytes,
 		prometheus.GaugeValue,
 		float64(mem.TotalPhys),
 	)
@@ -120,7 +128,7 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 	}
 
 	ch <- prometheus.MustNewConstMetric(
-		c.Hostname,
+		c.hostname,
 		prometheus.GaugeValue,
 		1.0,
 		hostname,

@@ -12,192 +12,199 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
-const (
-	Name = "net"
-
-	FlagNicExclude = "collector.net.nic-exclude"
-	FlagNicInclude = "collector.net.nic-include"
-)
+const Name = "net"
 
 type Config struct {
-	NicInclude string `yaml:"nic_include"`
-	NicExclude string `yaml:"nic_exclude"`
+	NicExclude *regexp.Regexp `yaml:"nic_exclude"`
+	NicInclude *regexp.Regexp `yaml:"nic_include"`
 }
 
 var ConfigDefaults = Config{
-	NicInclude: ".+",
-	NicExclude: "",
+	NicExclude: types.RegExpEmpty,
+	NicInclude: types.RegExpAny,
 }
 
 var nicNameToUnderscore = regexp.MustCompile("[^a-zA-Z0-9]")
 
-// A collector is a Prometheus collector for Perflib Network Interface metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for Perflib Network Interface metrics.
+type Collector struct {
+	config Config
 
-	nicInclude *string
-	nicExclude *string
-
-	BytesReceivedTotal       *prometheus.Desc
-	BytesSentTotal           *prometheus.Desc
-	BytesTotal               *prometheus.Desc
-	OutputQueueLength        *prometheus.Desc
-	PacketsOutboundDiscarded *prometheus.Desc
-	PacketsOutboundErrors    *prometheus.Desc
-	PacketsTotal             *prometheus.Desc
-	PacketsReceivedDiscarded *prometheus.Desc
-	PacketsReceivedErrors    *prometheus.Desc
-	PacketsReceivedTotal     *prometheus.Desc
-	PacketsReceivedUnknown   *prometheus.Desc
-	PacketsSentTotal         *prometheus.Desc
-	CurrentBandwidth         *prometheus.Desc
-
-	nicIncludePattern *regexp.Regexp
-	nicExcludePattern *regexp.Regexp
+	bytesReceivedTotal       *prometheus.Desc
+	bytesSentTotal           *prometheus.Desc
+	bytesTotal               *prometheus.Desc
+	outputQueueLength        *prometheus.Desc
+	packetsOutboundDiscarded *prometheus.Desc
+	packetsOutboundErrors    *prometheus.Desc
+	packetsTotal             *prometheus.Desc
+	packetsReceivedDiscarded *prometheus.Desc
+	packetsReceivedErrors    *prometheus.Desc
+	packetsReceivedTotal     *prometheus.Desc
+	packetsReceivedUnknown   *prometheus.Desc
+	packetsSentTotal         *prometheus.Desc
+	currentBandwidth         *prometheus.Desc
 }
 
-func New(logger log.Logger, config *Config) types.Collector {
+func New(config *Config) *Collector {
 	if config == nil {
 		config = &ConfigDefaults
 	}
 
-	c := &collector{
-		nicExclude: &config.NicExclude,
-		nicInclude: &config.NicInclude,
+	if config.NicExclude == nil {
+		config.NicExclude = ConfigDefaults.NicExclude
 	}
-	c.SetLogger(logger)
-	return c
-}
 
-func NewWithFlags(app *kingpin.Application) types.Collector {
-	c := &collector{
-		nicInclude: app.Flag(
-			FlagNicInclude,
-			"Regexp of NIC:s to include. NIC name must both match include and not match exclude to be included.",
-		).Default(ConfigDefaults.NicInclude).String(),
+	if config.NicInclude == nil {
+		config.NicInclude = ConfigDefaults.NicInclude
+	}
 
-		nicExclude: app.Flag(
-			FlagNicExclude,
-			"Regexp of NIC:s to exclude. NIC name must both match include and not match exclude to be included.",
-		).Default(ConfigDefaults.NicExclude).String(),
+	c := &Collector{
+		config: *config,
 	}
 
 	return c
 }
 
-func (c *collector) GetName() string {
+func NewWithFlags(app *kingpin.Application) *Collector {
+	c := &Collector{
+		config: ConfigDefaults,
+	}
+
+	var nicExclude, nicInclude string
+
+	app.Flag(
+		"collector.net.nic-exclude",
+		"Regexp of NIC:s to exclude. NIC name must both match include and not match exclude to be included.",
+	).Default(c.config.NicExclude.String()).StringVar(&nicExclude)
+
+	app.Flag(
+		"collector.net.nic-include",
+		"Regexp of NIC:s to include. NIC name must both match include and not match exclude to be included.",
+	).Default(c.config.NicInclude.String()).StringVar(&nicInclude)
+
+	app.Action(func(*kingpin.ParseContext) error {
+		var err error
+
+		c.config.NicExclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", nicExclude))
+		if err != nil {
+			return fmt.Errorf("collector.net.nic-exclude: %w", err)
+		}
+
+		c.config.NicInclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", nicInclude))
+		if err != nil {
+			return fmt.Errorf("collector.net.nic-include: %w", err)
+		}
+
+		return nil
+	})
+
+	return c
+}
+
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"Network Interface"}, nil
 }
 
-func (c *collector) Build() error {
-	c.BytesReceivedTotal = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.bytesReceivedTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "bytes_received_total"),
 		"(Network.BytesReceivedPerSec)",
 		[]string{"nic"},
 		nil,
 	)
-	c.BytesSentTotal = prometheus.NewDesc(
+	c.bytesSentTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "bytes_sent_total"),
 		"(Network.BytesSentPerSec)",
 		[]string{"nic"},
 		nil,
 	)
-	c.BytesTotal = prometheus.NewDesc(
+	c.bytesTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "bytes_total"),
 		"(Network.BytesTotalPerSec)",
 		[]string{"nic"},
 		nil,
 	)
-	c.OutputQueueLength = prometheus.NewDesc(
+	c.outputQueueLength = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "output_queue_length_packets"),
 		"(Network.OutputQueueLength)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsOutboundDiscarded = prometheus.NewDesc(
+	c.packetsOutboundDiscarded = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_outbound_discarded_total"),
 		"(Network.PacketsOutboundDiscarded)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsOutboundErrors = prometheus.NewDesc(
+	c.packetsOutboundErrors = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_outbound_errors_total"),
 		"(Network.PacketsOutboundErrors)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsReceivedDiscarded = prometheus.NewDesc(
+	c.packetsReceivedDiscarded = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_received_discarded_total"),
 		"(Network.PacketsReceivedDiscarded)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsReceivedErrors = prometheus.NewDesc(
+	c.packetsReceivedErrors = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_received_errors_total"),
 		"(Network.PacketsReceivedErrors)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsReceivedTotal = prometheus.NewDesc(
+	c.packetsReceivedTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_received_total"),
 		"(Network.PacketsReceivedPerSec)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsReceivedUnknown = prometheus.NewDesc(
+	c.packetsReceivedUnknown = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_received_unknown_total"),
 		"(Network.PacketsReceivedUnknown)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsTotal = prometheus.NewDesc(
+	c.packetsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_total"),
 		"(Network.PacketsPerSec)",
 		[]string{"nic"},
 		nil,
 	)
-	c.PacketsSentTotal = prometheus.NewDesc(
+	c.packetsSentTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "packets_sent_total"),
 		"(Network.PacketsSentPerSec)",
 		[]string{"nic"},
 		nil,
 	)
-	c.CurrentBandwidth = prometheus.NewDesc(
+	c.currentBandwidth = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "current_bandwidth_bytes"),
 		"(Network.CurrentBandwidth)",
 		[]string{"nic"},
 		nil,
 	)
 
-	var err error
-	c.nicIncludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.nicInclude))
-	if err != nil {
-		return err
-	}
-
-	c.nicExcludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.nicExclude))
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
-	if err := c.collect(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting net metrics", "err", err)
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
+	if err := c.collect(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting net metrics", "err", err)
 		return err
 	}
 	return nil
@@ -228,16 +235,17 @@ type networkInterface struct {
 	CurrentBandwidth         float64 `perflib:"Current Bandwidth"`
 }
 
-func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	var dst []networkInterface
 
-	if err := perflib.UnmarshalObject(ctx.PerfObjects["Network Interface"], &dst, c.logger); err != nil {
+	if err := perflib.UnmarshalObject(ctx.PerfObjects["Network Interface"], &dst, logger); err != nil {
 		return err
 	}
 
 	for _, nic := range dst {
-		if c.nicExcludePattern.MatchString(nic.Name) ||
-			!c.nicIncludePattern.MatchString(nic.Name) {
+		if c.config.NicExclude.MatchString(nic.Name) ||
+			!c.config.NicInclude.MatchString(nic.Name) {
 			continue
 		}
 
@@ -248,83 +256,84 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 
 		// Counters
 		ch <- prometheus.MustNewConstMetric(
-			c.BytesReceivedTotal,
+			c.bytesReceivedTotal,
 			prometheus.CounterValue,
 			nic.BytesReceivedPerSec,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.BytesSentTotal,
+			c.bytesSentTotal,
 			prometheus.CounterValue,
 			nic.BytesSentPerSec,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.BytesTotal,
+			c.bytesTotal,
 			prometheus.CounterValue,
 			nic.BytesTotalPerSec,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.OutputQueueLength,
+			c.outputQueueLength,
 			prometheus.GaugeValue,
 			nic.OutputQueueLength,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsOutboundDiscarded,
+			c.packetsOutboundDiscarded,
 			prometheus.CounterValue,
 			nic.PacketsOutboundDiscarded,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsOutboundErrors,
+			c.packetsOutboundErrors,
 			prometheus.CounterValue,
 			nic.PacketsOutboundErrors,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsTotal,
+			c.packetsTotal,
 			prometheus.CounterValue,
 			nic.PacketsPerSec,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsReceivedDiscarded,
+			c.packetsReceivedDiscarded,
 			prometheus.CounterValue,
 			nic.PacketsReceivedDiscarded,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsReceivedErrors,
+			c.packetsReceivedErrors,
 			prometheus.CounterValue,
 			nic.PacketsReceivedErrors,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsReceivedTotal,
+			c.packetsReceivedTotal,
 			prometheus.CounterValue,
 			nic.PacketsReceivedPerSec,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsReceivedUnknown,
+			c.packetsReceivedUnknown,
 			prometheus.CounterValue,
 			nic.PacketsReceivedUnknown,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.PacketsSentTotal,
+			c.packetsSentTotal,
 			prometheus.CounterValue,
 			nic.PacketsSentPerSec,
 			name,
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.CurrentBandwidth,
+			c.currentBandwidth,
 			prometheus.GaugeValue,
 			nic.CurrentBandwidth/8,
 			name,
 		)
 	}
+
 	return nil
 }

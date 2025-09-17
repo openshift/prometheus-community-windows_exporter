@@ -5,13 +5,12 @@ package logon
 import (
 	"errors"
 
-	"github.com/prometheus-community/windows_exporter/pkg/types"
-	"github.com/prometheus-community/windows_exporter/pkg/wmi"
-
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "logon"
@@ -20,37 +19,49 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI metrics.
+type Collector struct {
+	config    Config
+	wmiClient *wmi.Client
 
-	LogonType *prometheus.Desc
+	logonType *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	c.LogonType = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, wmiClient *wmi.Client) error {
+	if wmiClient == nil || wmiClient.SWbemServicesClient == nil {
+		return errors.New("wmiClient or SWbemServicesClient is nil")
+	}
+
+	c.wmiClient = wmiClient
+	c.logonType = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "logon_type"),
 		"Number of active logon sessions (LogonSession.LogonType)",
 		[]string{"status"},
@@ -61,9 +72,10 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting user metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting user metrics", "err", err)
 		return err
 	}
 	return nil
@@ -75,10 +87,9 @@ type Win32_LogonSession struct {
 	LogonType uint32
 }
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
 	var dst []Win32_LogonSession
-	q := wmi.QueryAll(&dst, c.logger)
-	if err := wmi.Query(q, &dst); err != nil {
+	if err := c.wmiClient.Query("SELECT * FROM Win32_LogonSession", &dst); err != nil {
 		return err
 	}
 	if len(dst) == 0 {
@@ -132,91 +143,91 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 	}
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(system),
 		"system",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(interactive),
 		"interactive",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(network),
 		"network",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(batch),
 		"batch",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(service),
 		"service",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(proxy),
 		"proxy",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(unlock),
 		"unlock",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(networkcleartext),
 		"network_clear_text",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(newcredentials),
 		"new_credentials",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(remoteinteractive),
 		"remote_interactive",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(cachedinteractive),
 		"cached_interactive",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(remoteinteractive),
 		"cached_remote_interactive",
 	)
 
 	ch <- prometheus.MustNewConstMetric(
-		c.LogonType,
+		c.logonType,
 		prometheus.GaugeValue,
 		float64(cachedunlock),
 		"cached_unlock",

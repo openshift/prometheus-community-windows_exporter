@@ -6,29 +6,29 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
+	"github.com/go-kit/log"
 	"github.com/prometheus-community/windows_exporter/pkg/collector"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/textfile"
-	"github.com/prometheus-community/windows_exporter/pkg/types"
-
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/require"
 )
 
 var baseDir = "../../../tools/textfile-test"
 
 func TestMultipleDirectories(t *testing.T) {
+	t.Parallel()
+
+	logger := log.NewLogfmtLogger(os.Stdout)
 	testDir := baseDir + "/multiple-dirs"
 	testDirs := fmt.Sprintf("%[1]s/dir1,%[1]s/dir2,%[1]s/dir3", testDir)
 
-	textfileCollector := textfile.New(log.NewLogfmtLogger(os.Stdout), &textfile.Config{
-		TextFileDirectories: testDirs,
+	textFileCollector := textfile.New(&textfile.Config{
+		TextFileDirectories: strings.Split(testDirs, ","),
 	})
 
-	collectors := collector.New(map[string]types.Collector{textfile.Name: textfileCollector})
-	require.NoError(t, collectors.Build())
+	collectors := collector.New(map[string]collector.Collector{textfile.Name: textFileCollector})
+	require.NoError(t, collectors.Build(logger))
 
 	scrapeContext, err := collectors.PrepareScrapeContext()
 	if err != nil {
@@ -48,7 +48,7 @@ func TestMultipleDirectories(t *testing.T) {
 		}
 	}()
 
-	err = textfileCollector.Collect(scrapeContext, metrics)
+	err = textFileCollector.Collect(scrapeContext, logger, metrics)
 	if err != nil {
 		t.Errorf("Unexpected error %s", err)
 	}
@@ -61,13 +61,16 @@ func TestMultipleDirectories(t *testing.T) {
 }
 
 func TestDuplicateFileName(t *testing.T) {
+	t.Parallel()
+
+	logger := log.NewLogfmtLogger(os.Stdout)
 	testDir := baseDir + "/duplicate-filename"
-	textfileCollector := textfile.New(log.NewLogfmtLogger(os.Stdout), &textfile.Config{
-		TextFileDirectories: testDir,
+	textFileCollector := textfile.New(&textfile.Config{
+		TextFileDirectories: []string{testDir},
 	})
 
-	collectors := collector.New(map[string]types.Collector{textfile.Name: textfileCollector})
-	require.NoError(t, collectors.Build())
+	collectors := collector.New(map[string]collector.Collector{textfile.Name: textFileCollector})
+	require.NoError(t, collectors.Build(logger))
 
 	scrapeContext, err := collectors.PrepareScrapeContext()
 	if err != nil {
@@ -86,13 +89,15 @@ func TestDuplicateFileName(t *testing.T) {
 			got += metric.String()
 		}
 	}()
-	err = textfileCollector.Collect(scrapeContext, metrics)
+	err = textFileCollector.Collect(scrapeContext, logger, metrics)
 	if err != nil {
 		t.Errorf("Unexpected error %s", err)
 	}
+
 	if !strings.Contains(got, "file") {
 		t.Errorf("Unexpected output  %q", got)
 	}
+
 	if strings.Contains(got, "sub_file") {
 		t.Errorf("Unexpected output  %q", got)
 	}

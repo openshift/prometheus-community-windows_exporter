@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "adfs"
@@ -18,20 +19,21 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-type collector struct {
-	logger log.Logger
+type Collector struct {
+	config Config
 
 	adLoginConnectionFailures                          *prometheus.Desc
+	artifactDBFailures                                 *prometheus.Desc
+	avgArtifactDBQueryTime                             *prometheus.Desc
+	avgConfigDBQueryTime                               *prometheus.Desc
 	certificateAuthentications                         *prometheus.Desc
+	configDBFailures                                   *prometheus.Desc
 	deviceAuthentications                              *prometheus.Desc
+	externalAuthenticationFailures                     *prometheus.Desc
+	externalAuthentications                            *prometheus.Desc
 	extranetAccountLockouts                            *prometheus.Desc
 	federatedAuthentications                           *prometheus.Desc
-	passportAuthentications                            *prometheus.Desc
-	passiveRequests                                    *prometheus.Desc
-	passwordChangeFailed                               *prometheus.Desc
-	passwordChangeSucceeded                            *prometheus.Desc
-	tokenRequests                                      *prometheus.Desc
-	windowsIntegratedAuthentications                   *prometheus.Desc
+	federationMetadataRequests                         *prometheus.Desc
 	oAuthAuthZRequests                                 *prometheus.Desc
 	oAuthClientAuthentications                         *prometheus.Desc
 	oAuthClientAuthenticationsFailures                 *prometheus.Desc
@@ -50,45 +52,50 @@ type collector struct {
 	oAuthPasswordGrantRequestFailures                  *prometheus.Desc
 	oAuthPasswordGrantRequests                         *prometheus.Desc
 	oAuthTokenRequests                                 *prometheus.Desc
+	passiveRequests                                    *prometheus.Desc
+	passportAuthentications                            *prometheus.Desc
+	passwordChangeFailed                               *prometheus.Desc
+	passwordChangeSucceeded                            *prometheus.Desc
 	samlPTokenRequests                                 *prometheus.Desc
 	ssoAuthenticationFailures                          *prometheus.Desc
 	ssoAuthentications                                 *prometheus.Desc
-	wsfedTokenRequests                                 *prometheus.Desc
-	wstrustTokenRequests                               *prometheus.Desc
+	tokenRequests                                      *prometheus.Desc
 	upAuthenticationFailures                           *prometheus.Desc
 	upAuthentications                                  *prometheus.Desc
-	externalAuthenticationFailures                     *prometheus.Desc
-	externalAuthentications                            *prometheus.Desc
-	artifactDBFailures                                 *prometheus.Desc
-	avgArtifactDBQueryTime                             *prometheus.Desc
-	configDBFailures                                   *prometheus.Desc
-	avgConfigDBQueryTime                               *prometheus.Desc
-	federationMetadataRequests                         *prometheus.Desc
+	windowsIntegratedAuthentications                   *prometheus.Desc
+	wsfedTokenRequests                                 *prometheus.Desc
+	wstrustTokenRequests                               *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"AD FS"}, nil
 }
 
-func (c *collector) Build() error {
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
 	c.adLoginConnectionFailures = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "ad_login_connection_failures_total"),
 		"Total number of connection failures to an Active Directory domain controller",
@@ -397,9 +404,10 @@ type perflibADFS struct {
 	FederationMetadataRequests           float64 `perflib:"Federation Metadata Requests"`
 }
 
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	var adfsData []perflibADFS
-	err := perflib.UnmarshalObject(ctx.PerfObjects["AD FS"], &adfsData, c.logger)
+	err := perflib.UnmarshalObject(ctx.PerfObjects["AD FS"], &adfsData, logger)
 	if err != nil {
 		return err
 	}

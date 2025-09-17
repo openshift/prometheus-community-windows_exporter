@@ -9,45 +9,34 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/prometheus-community/windows_exporter/pkg/types"
-
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
-const (
-	Name = "scheduled_task"
-
-	FlagScheduledTaskExclude = "collector.scheduled_task.exclude"
-	FlagScheduledTaskInclude = "collector.scheduled_task.include"
-)
+const Name = "scheduled_task"
 
 type Config struct {
-	TaskExclude string `yaml:"task_exclude"`
-	TaskInclude string `yaml:"task_include"`
+	TaskExclude *regexp.Regexp `yaml:"task_exclude"`
+	TaskInclude *regexp.Regexp `yaml:"task_include"`
 }
 
 var ConfigDefaults = Config{
-	TaskExclude: "",
-	TaskInclude: ".+",
+	TaskExclude: types.RegExpEmpty,
+	TaskInclude: types.RegExpAny,
 }
 
-type collector struct {
-	logger log.Logger
+type Collector struct {
+	config Config
 
-	taskExclude *string
-	taskInclude *string
-
-	LastResult *prometheus.Desc
-	MissedRuns *prometheus.Desc
-	State      *prometheus.Desc
-
-	taskIncludePattern *regexp.Regexp
-	taskExcludePattern *regexp.Regexp
+	lastResult *prometheus.Desc
+	missedRuns *prometheus.Desc
+	state      *prometheus.Desc
 }
 
 // TaskState ...
@@ -62,7 +51,11 @@ const (
 	TASK_STATE_QUEUED
 	TASK_STATE_READY
 	TASK_STATE_RUNNING
-	TASK_RESULT_SUCCESS TaskResult = 0x0
+)
+
+const (
+	SCHED_S_SUCCESS          TaskResult = 0x0
+	SCHED_S_TASK_HAS_NOT_RUN TaskResult = 0x00041303
 )
 
 type ScheduledTask struct {
@@ -76,87 +69,103 @@ type ScheduledTask struct {
 
 type ScheduledTasks []ScheduledTask
 
-func New(logger log.Logger, config *Config) types.Collector {
+func New(config *Config) *Collector {
 	if config == nil {
 		config = &ConfigDefaults
 	}
 
-	c := &collector{
-		taskExclude: &config.TaskExclude,
-		taskInclude: &config.TaskInclude,
+	if config.TaskExclude == nil {
+		config.TaskExclude = ConfigDefaults.TaskExclude
 	}
-	c.SetLogger(logger)
-	return c
-}
 
-func NewWithFlags(app *kingpin.Application) types.Collector {
-	c := &collector{
-		taskInclude: app.Flag(
-			FlagScheduledTaskInclude,
-			"Regexp of tasks to include. Task path must both match include and not match exclude to be included.",
-		).Default(ConfigDefaults.TaskInclude).String(),
+	if config.TaskInclude == nil {
+		config.TaskInclude = ConfigDefaults.TaskInclude
+	}
 
-		taskExclude: app.Flag(
-			FlagScheduledTaskExclude,
-			"Regexp of tasks to exclude. Task path must both match include and not match exclude to be included.",
-		).Default(ConfigDefaults.TaskExclude).String(),
+	c := &Collector{
+		config: *config,
 	}
 
 	return c
 }
 
-func (c *collector) GetName() string {
+func NewWithFlags(app *kingpin.Application) *Collector {
+	c := &Collector{
+		config: ConfigDefaults,
+	}
+
+	var taskExclude, taskInclude string
+
+	app.Flag(
+		"collector.scheduled_task.exclude",
+		"Regexp of tasks to exclude. Task path must both match include and not match exclude to be included.",
+	).Default(c.config.TaskExclude.String()).StringVar(&taskExclude)
+
+	app.Flag(
+		"collector.scheduled_task.include",
+		"Regexp of tasks to include. Task path must both match include and not match exclude to be included.",
+	).Default(c.config.TaskInclude.String()).StringVar(&taskInclude)
+
+	app.Action(func(*kingpin.ParseContext) error {
+		var err error
+
+		c.config.TaskExclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", taskExclude))
+		if err != nil {
+			return fmt.Errorf("collector.scheduled_task.exclude: %w", err)
+		}
+
+		c.config.TaskInclude, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", taskInclude))
+		if err != nil {
+			return fmt.Errorf("collector.scheduled_task.include: %w", err)
+		}
+
+		return nil
+	})
+
+	return c
+}
+
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{}, nil
 }
 
-func (c *collector) Build() error {
-	c.LastResult = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.lastResult = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "last_result"),
 		"The result that was returned the last time the registered task was run",
 		[]string{"task"},
 		nil,
 	)
 
-	c.MissedRuns = prometheus.NewDesc(
+	c.missedRuns = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "missed_runs"),
 		"The number of times the registered task missed a scheduled run",
 		[]string{"task"},
 		nil,
 	)
 
-	c.State = prometheus.NewDesc(
+	c.state = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "state"),
 		"The current state of a scheduled task",
 		[]string{"task", "state"},
 		nil,
 	)
 
-	var err error
-
-	c.taskIncludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.taskInclude))
-	if err != nil {
-		return err
-	}
-
-	c.taskExcludePattern, err = regexp.Compile(fmt.Sprintf("^(?:%s)$", *c.taskExclude))
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) Collect(_ *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	if err := c.collect(ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting user metrics", "err", err)
+		_ = level.Error(logger).Log("msg", "failed collecting user metrics", "err", err)
 		return err
 	}
 
@@ -165,36 +174,17 @@ func (c *collector) Collect(_ *types.ScrapeContext, ch chan<- prometheus.Metric)
 
 var TASK_STATES = []string{"disabled", "queued", "ready", "running", "unknown"}
 
-func (c *collector) collect(ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ch chan<- prometheus.Metric) error {
 	scheduledTasks, err := getScheduledTasks()
 	if err != nil {
 		return err
 	}
 
 	for _, task := range scheduledTasks {
-		if c.taskExcludePattern.MatchString(task.Path) ||
-			!c.taskIncludePattern.MatchString(task.Path) {
+		if c.config.TaskExclude.MatchString(task.Path) ||
+			!c.config.TaskInclude.MatchString(task.Path) {
 			continue
 		}
-
-		lastResult := 0.0
-		if task.LastTaskResult == TASK_RESULT_SUCCESS {
-			lastResult = 1.0
-		}
-
-		ch <- prometheus.MustNewConstMetric(
-			c.LastResult,
-			prometheus.GaugeValue,
-			lastResult,
-			task.Path,
-		)
-
-		ch <- prometheus.MustNewConstMetric(
-			c.MissedRuns,
-			prometheus.GaugeValue,
-			task.MissedRunsCount,
-			task.Path,
-		)
 
 		for _, state := range TASK_STATES {
 			var stateValue float64
@@ -204,13 +194,36 @@ func (c *collector) collect(ch chan<- prometheus.Metric) error {
 			}
 
 			ch <- prometheus.MustNewConstMetric(
-				c.State,
+				c.state,
 				prometheus.GaugeValue,
 				stateValue,
 				task.Path,
 				state,
 			)
 		}
+
+		if task.LastTaskResult == SCHED_S_TASK_HAS_NOT_RUN {
+			continue
+		}
+
+		lastResult := 0.0
+		if task.LastTaskResult == SCHED_S_SUCCESS {
+			lastResult = 1.0
+		}
+
+		ch <- prometheus.MustNewConstMetric(
+			c.lastResult,
+			prometheus.GaugeValue,
+			lastResult,
+			task.Path,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			c.missedRuns,
+			prometheus.GaugeValue,
+			task.MissedRunsCount,
+			task.Path,
+		)
 	}
 
 	return nil
@@ -221,7 +234,9 @@ const SCHEDULED_TASK_PROGRAM_ID = "Schedule.Service.1"
 // S_FALSE is returned by CoInitialize if it was already called on this thread.
 const S_FALSE = 0x00000001
 
-func getScheduledTasks() (scheduledTasks ScheduledTasks, err error) {
+func getScheduledTasks() (ScheduledTasks, error) {
+	var scheduledTasks ScheduledTasks
+
 	// The only way to run WMI queries in parallel while being thread-safe is to
 	// ensure the CoInitialize[Ex]() call is bound to its current OS thread.
 	// Otherwise, attempting to initialize and run parallel queries across
@@ -316,7 +331,9 @@ func fetchTasksRecursively(folder *ole.IDispatch, scheduledTasks *ScheduledTasks
 	return err
 }
 
-func parseTask(task *ole.IDispatch) (scheduledTask ScheduledTask, err error) {
+func parseTask(task *ole.IDispatch) (ScheduledTask, error) {
+	var scheduledTask ScheduledTask
+
 	taskNameVar, err := oleutil.GetProperty(task, "Name")
 	if err != nil {
 		return scheduledTask, err
@@ -379,7 +396,9 @@ func parseTask(task *ole.IDispatch) (scheduledTask ScheduledTask, err error) {
 
 	scheduledTask.Name = taskNameVar.ToString()
 	scheduledTask.Path = strings.ReplaceAll(taskPathVar.ToString(), "\\", "/")
-	scheduledTask.Enabled = taskEnabledVar.Value().(bool)
+	if val, ok := taskEnabledVar.Value().(bool); ok {
+		scheduledTask.Enabled = val
+	}
 	scheduledTask.State = TaskState(taskStateVar.Val)
 	scheduledTask.MissedRunsCount = float64(taskNumberOfMissedRunsVar.Val)
 	scheduledTask.LastTaskResult = TaskResult(taskLastTaskResultVar.Val)

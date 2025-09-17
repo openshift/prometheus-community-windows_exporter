@@ -9,7 +9,7 @@ import (
 //
 // All keys will be joined by dot
 // e.g. {"a": {"b":"c"}} => {"a.b":"c"}
-// or {"a": {"b":[1,2]}} => {"a.b.0":1, "a.b.1": 2}
+// or {"a": {"b":[1,2]}} => {"a.b.0":1, "a.b.1": 2}.
 func flatten(data map[string]interface{}) map[string]string {
 	ret := make(map[string]string)
 	for k, v := range data {
@@ -32,6 +32,7 @@ func flatten(data map[string]interface{}) map[string]string {
 	}
 	return ret
 }
+
 func flattenSlice(data []interface{}) map[string]string {
 	ret := make(map[string]string)
 	for idx, v := range data {
@@ -58,7 +59,9 @@ func flattenSlice(data []interface{}) map[string]string {
 func convertMap(originalMap map[interface{}]interface{}) map[string]interface{} {
 	convertedMap := map[string]interface{}{}
 	for key, value := range originalMap {
-		convertedMap[key.(string)] = value
+		if keyString, ok := key.(string); ok {
+			convertedMap[keyString] = value
+		}
 	}
 	return convertedMap
 }

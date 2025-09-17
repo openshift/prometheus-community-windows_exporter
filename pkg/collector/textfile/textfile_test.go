@@ -10,6 +10,8 @@ import (
 )
 
 func TestCRFilter(t *testing.T) {
+	t.Parallel()
+
 	sr := strings.NewReader("line 1\r\nline 2")
 	cr := carriageReturnFilteringReader{r: sr}
 	b, err := io.ReadAll(cr)
@@ -23,6 +25,8 @@ func TestCRFilter(t *testing.T) {
 }
 
 func TestCheckBOM(t *testing.T) {
+	t.Parallel()
+
 	testdata := []struct {
 		encoding utfbom.Encoding
 		err      string
@@ -49,6 +53,8 @@ func TestCheckBOM(t *testing.T) {
 }
 
 func TestDuplicateMetricEntry(t *testing.T) {
+	t.Parallel()
+
 	metric_name := "windows_sometest"
 	metric_help := "This is a Test."
 	metric_type := dto.MetricType_GAUGE
@@ -92,7 +98,7 @@ func TestDuplicateMetricEntry(t *testing.T) {
 		Metric: []*dto.Metric{&metric1, &metric2},
 	}
 
-	duplicateFamily := []*dto.MetricFamily{}
+	var duplicateFamily []*dto.MetricFamily
 	duplicateFamily = append(duplicateFamily, &duplicate)
 
 	// Ensure detection for duplicate metrics

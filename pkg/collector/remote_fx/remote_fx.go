@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus-community/windows_exporter/pkg/utils"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "remote_fx"
@@ -20,136 +21,142 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// collector
-// A RemoteFxNetworkCollector is a Prometheus collector for
+// Collector
+// A RemoteFxNetworkCollector is a Prometheus Collector for
 // WMI Win32_PerfRawData_Counters_RemoteFXNetwork & Win32_PerfRawData_Counters_RemoteFXGraphics metrics
 // https://wutils.com/wmi/root/cimv2/win32_perfrawdata_counters_remotefxnetwork/
 // https://wutils.com/wmi/root/cimv2/win32_perfrawdata_counters_remotefxgraphics/
-type collector struct {
-	logger log.Logger
+type Collector struct {
+	config Config
 
 	// net
-	BaseTCPRTT               *prometheus.Desc
-	BaseUDPRTT               *prometheus.Desc
-	CurrentTCPBandwidth      *prometheus.Desc
-	CurrentTCPRTT            *prometheus.Desc
-	CurrentUDPBandwidth      *prometheus.Desc
-	CurrentUDPRTT            *prometheus.Desc
-	TotalReceivedBytes       *prometheus.Desc
-	TotalSentBytes           *prometheus.Desc
-	UDPPacketsReceivedPersec *prometheus.Desc
-	UDPPacketsSentPersec     *prometheus.Desc
-	FECRate                  *prometheus.Desc
-	LossRate                 *prometheus.Desc
-	RetransmissionRate       *prometheus.Desc
+	baseTCPRTT               *prometheus.Desc
+	baseUDPRTT               *prometheus.Desc
+	currentTCPBandwidth      *prometheus.Desc
+	currentTCPRTT            *prometheus.Desc
+	currentUDPBandwidth      *prometheus.Desc
+	currentUDPRTT            *prometheus.Desc
+	fecRate                  *prometheus.Desc
+	lossRate                 *prometheus.Desc
+	retransmissionRate       *prometheus.Desc
+	totalReceivedBytes       *prometheus.Desc
+	totalSentBytes           *prometheus.Desc
+	udpPacketsReceivedPerSec *prometheus.Desc
+	udpPacketsSentPerSec     *prometheus.Desc
 
 	// gfx
-	AverageEncodingTime                         *prometheus.Desc
-	FrameQuality                                *prometheus.Desc
-	FramesSkippedPerSecondInsufficientResources *prometheus.Desc
-	GraphicsCompressionratio                    *prometheus.Desc
-	InputFramesPerSecond                        *prometheus.Desc
-	OutputFramesPerSecond                       *prometheus.Desc
-	SourceFramesPerSecond                       *prometheus.Desc
+	averageEncodingTime                         *prometheus.Desc
+	frameQuality                                *prometheus.Desc
+	framesSkippedPerSecondInsufficientResources *prometheus.Desc
+	graphicsCompressionRatio                    *prometheus.Desc
+	inputFramesPerSecond                        *prometheus.Desc
+	outputFramesPerSecond                       *prometheus.Desc
+	sourceFramesPerSecond                       *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"RemoteFX Network", "RemoteFX Graphics"}, nil
 }
 
-func (c *collector) Build() error {
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(log.Logger, *wmi.Client) error {
 	// net
-	c.BaseTCPRTT = prometheus.NewDesc(
+	c.baseTCPRTT = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_base_tcp_rtt_seconds"),
 		"Base TCP round-trip time (RTT) detected in seconds",
 		[]string{"session_name"},
 		nil,
 	)
-	c.BaseUDPRTT = prometheus.NewDesc(
+	c.baseUDPRTT = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_base_udp_rtt_seconds"),
 		"Base UDP round-trip time (RTT) detected in seconds.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.CurrentTCPBandwidth = prometheus.NewDesc(
+	c.currentTCPBandwidth = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_current_tcp_bandwidth"),
 		"TCP Bandwidth detected in bytes per second.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.CurrentTCPRTT = prometheus.NewDesc(
+	c.currentTCPRTT = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_current_tcp_rtt_seconds"),
 		"Average TCP round-trip time (RTT) detected in seconds.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.CurrentUDPBandwidth = prometheus.NewDesc(
+	c.currentUDPBandwidth = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_current_udp_bandwidth"),
 		"UDP Bandwidth detected in bytes per second.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.CurrentUDPRTT = prometheus.NewDesc(
+	c.currentUDPRTT = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_current_udp_rtt_seconds"),
 		"Average UDP round-trip time (RTT) detected in seconds.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.TotalReceivedBytes = prometheus.NewDesc(
+	c.totalReceivedBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_received_bytes_total"),
 		"(TotalReceivedBytes)",
 		[]string{"session_name"},
 		nil,
 	)
-	c.TotalSentBytes = prometheus.NewDesc(
+	c.totalSentBytes = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_sent_bytes_total"),
 		"(TotalSentBytes)",
 		[]string{"session_name"},
 		nil,
 	)
-	c.UDPPacketsReceivedPersec = prometheus.NewDesc(
+	c.udpPacketsReceivedPerSec = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_udp_packets_received_total"),
 		"Rate in packets per second at which packets are received over UDP.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.UDPPacketsSentPersec = prometheus.NewDesc(
+	c.udpPacketsSentPerSec = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_udp_packets_sent_total"),
 		"Rate in packets per second at which packets are sent over UDP.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.FECRate = prometheus.NewDesc(
+	c.fecRate = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_fec_rate"),
 		"Forward Error Correction (FEC) percentage",
 		[]string{"session_name"},
 		nil,
 	)
-	c.LossRate = prometheus.NewDesc(
+	c.lossRate = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_loss_rate"),
 		"Loss percentage",
 		[]string{"session_name"},
 		nil,
 	)
-	c.RetransmissionRate = prometheus.NewDesc(
+	c.retransmissionRate = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "net_retransmission_rate"),
 		"Percentage of packets that have been retransmitted",
 		[]string{"session_name"},
@@ -157,43 +164,43 @@ func (c *collector) Build() error {
 	)
 
 	// gfx
-	c.AverageEncodingTime = prometheus.NewDesc(
+	c.averageEncodingTime = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_average_encoding_time_seconds"),
 		"Average frame encoding time in seconds",
 		[]string{"session_name"},
 		nil,
 	)
-	c.FrameQuality = prometheus.NewDesc(
+	c.frameQuality = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_frame_quality"),
 		"Quality of the output frame expressed as a percentage of the quality of the source frame.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.FramesSkippedPerSecondInsufficientResources = prometheus.NewDesc(
+	c.framesSkippedPerSecondInsufficientResources = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_frames_skipped_insufficient_resource_total"),
 		"Number of frames skipped per second due to insufficient client resources.",
 		[]string{"session_name", "resource"},
 		nil,
 	)
-	c.GraphicsCompressionratio = prometheus.NewDesc(
+	c.graphicsCompressionRatio = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_graphics_compression_ratio"),
 		"Ratio of the number of bytes encoded to the number of bytes input.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.InputFramesPerSecond = prometheus.NewDesc(
+	c.inputFramesPerSecond = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_input_frames_total"),
 		"Number of sources frames provided as input to RemoteFX graphics per second.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.OutputFramesPerSecond = prometheus.NewDesc(
+	c.outputFramesPerSecond = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_output_frames_total"),
 		"Number of frames sent to the client per second.",
 		[]string{"session_name"},
 		nil,
 	)
-	c.SourceFramesPerSecond = prometheus.NewDesc(
+	c.sourceFramesPerSecond = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "gfx_source_frames_total"),
 		"Number of frames composed by the source (DWM) per second.",
 		[]string{"session_name"},
@@ -204,13 +211,14 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
-	if err := c.collectRemoteFXNetworkCount(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting terminal services session count metrics", "err", err)
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
+	if err := c.collectRemoteFXNetworkCount(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting terminal services session count metrics", "err", err)
 		return err
 	}
-	if err := c.collectRemoteFXGraphicsCounters(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting terminal services session count metrics", "err", err)
+	if err := c.collectRemoteFXGraphicsCounters(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting terminal services session count metrics", "err", err)
 		return err
 	}
 	return nil
@@ -233,9 +241,10 @@ type perflibRemoteFxNetwork struct {
 	RetransmissionRate       float64 `perflib:"Percentage of packets that have been retransmitted"`
 }
 
-func (c *collector) collectRemoteFXNetworkCount(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collectRemoteFXNetworkCount(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	dst := make([]perflibRemoteFxNetwork, 0)
-	err := perflib.UnmarshalObject(ctx.PerfObjects["RemoteFX Network"], &dst, c.logger)
+	err := perflib.UnmarshalObject(ctx.PerfObjects["RemoteFX Network"], &dst, logger)
 	if err != nil {
 		return err
 	}
@@ -247,81 +256,81 @@ func (c *collector) collectRemoteFXNetworkCount(ctx *types.ScrapeContext, ch cha
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(
-			c.BaseTCPRTT,
+			c.baseTCPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(d.BaseTCPRTT),
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.BaseUDPRTT,
+			c.baseUDPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(d.BaseUDPRTT),
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.CurrentTCPBandwidth,
+			c.currentTCPBandwidth,
 			prometheus.GaugeValue,
 			(d.CurrentTCPBandwidth*1000)/8,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.CurrentTCPRTT,
+			c.currentTCPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(d.CurrentTCPRTT),
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.CurrentUDPBandwidth,
+			c.currentUDPBandwidth,
 			prometheus.GaugeValue,
 			(d.CurrentUDPBandwidth*1000)/8,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.CurrentUDPRTT,
+			c.currentUDPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(d.CurrentUDPRTT),
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.TotalReceivedBytes,
+			c.totalReceivedBytes,
 			prometheus.CounterValue,
 			d.TotalReceivedBytes,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.TotalSentBytes,
+			c.totalSentBytes,
 			prometheus.CounterValue,
 			d.TotalSentBytes,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.UDPPacketsReceivedPersec,
+			c.udpPacketsReceivedPerSec,
 			prometheus.CounterValue,
 			d.UDPPacketsReceivedPersec,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.UDPPacketsSentPersec,
+			c.udpPacketsSentPerSec,
 			prometheus.CounterValue,
 			d.UDPPacketsSentPersec,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.FECRate,
+			c.fecRate,
 			prometheus.GaugeValue,
 			d.FECRate,
 			normalizeSessionName(d.Name),
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.LossRate,
+			c.lossRate,
 			prometheus.GaugeValue,
 			d.LossRate,
 			normalizeSessionName(d.Name),
 		)
 
 		ch <- prometheus.MustNewConstMetric(
-			c.RetransmissionRate,
+			c.retransmissionRate,
 			prometheus.GaugeValue,
 			d.RetransmissionRate,
 			normalizeSessionName(d.Name),
@@ -343,9 +352,10 @@ type perflibRemoteFxGraphics struct {
 	SourceFramesPerSecond                              float64 `perflib:"Source Frames/Second"`
 }
 
-func (c *collector) collectRemoteFXGraphicsCounters(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collectRemoteFXGraphicsCounters(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	dst := make([]perflibRemoteFxGraphics, 0)
-	err := perflib.UnmarshalObject(ctx.PerfObjects["RemoteFX Graphics"], &dst, c.logger)
+	err := perflib.UnmarshalObject(ctx.PerfObjects["RemoteFX Graphics"], &dst, logger)
 	if err != nil {
 		return err
 	}
@@ -357,58 +367,58 @@ func (c *collector) collectRemoteFXGraphicsCounters(ctx *types.ScrapeContext, ch
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(
-			c.AverageEncodingTime,
+			c.averageEncodingTime,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(d.AverageEncodingTime),
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.FrameQuality,
+			c.frameQuality,
 			prometheus.GaugeValue,
 			d.FrameQuality,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.FramesSkippedPerSecondInsufficientResources,
+			c.framesSkippedPerSecondInsufficientResources,
 			prometheus.CounterValue,
 			d.FramesSkippedPerSecondInsufficientClientResources,
 			normalizeSessionName(d.Name),
 			"client",
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.FramesSkippedPerSecondInsufficientResources,
+			c.framesSkippedPerSecondInsufficientResources,
 			prometheus.CounterValue,
 			d.FramesSkippedPerSecondInsufficientNetworkResources,
 			normalizeSessionName(d.Name),
 			"network",
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.FramesSkippedPerSecondInsufficientResources,
+			c.framesSkippedPerSecondInsufficientResources,
 			prometheus.CounterValue,
 			d.FramesSkippedPerSecondInsufficientServerResources,
 			normalizeSessionName(d.Name),
 			"server",
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.GraphicsCompressionratio,
+			c.graphicsCompressionRatio,
 			prometheus.GaugeValue,
 			d.GraphicsCompressionratio,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.InputFramesPerSecond,
+			c.inputFramesPerSecond,
 			prometheus.CounterValue,
 			d.InputFramesPerSecond,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.OutputFramesPerSecond,
+			c.outputFramesPerSecond,
 			prometheus.CounterValue,
 			d.OutputFramesPerSecond,
 			normalizeSessionName(d.Name),
 		)
 		ch <- prometheus.MustNewConstMetric(
-			c.SourceFramesPerSecond,
+			c.sourceFramesPerSecond,
 			prometheus.CounterValue,
 			d.SourceFramesPerSecond,
 			normalizeSessionName(d.Name),
@@ -418,7 +428,7 @@ func (c *collector) collectRemoteFXGraphicsCounters(ctx *types.ScrapeContext, ch
 	return nil
 }
 
-// normalizeSessionName ensure that the session is the same between WTS API and performance counters
+// normalizeSessionName ensure that the session is the same between WTS API and performance counters.
 func normalizeSessionName(sessionName string) string {
 	return strings.Replace(sessionName, "RDP-tcp", "RDP-Tcp", 1)
 }

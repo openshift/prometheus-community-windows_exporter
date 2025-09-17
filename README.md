@@ -14,7 +14,7 @@ Name     | Description | Enabled by default
 [cache](docs/collector.cache.md) | Cache metrics |
 [cpu](docs/collector.cpu.md) | CPU usage | &#10003;
 [cpu_info](docs/collector.cpu_info.md) | CPU Information |
-[cs](docs/collector.cs.md) | "Computer System" metrics (system properties, num cpus/total memory) | &#10003;
+[cs](docs/collector.cs.md) | "Computer System" metrics (system properties, num cpus/total memory) | 
 [container](docs/collector.container.md) | Container metrics |
 [diskdrive](docs/collector.diskdrive.md) | Diskdrive metrics |
 [dfsr](docs/collector.dfsr.md) | DFSR metrics |
@@ -28,11 +28,7 @@ Name     | Description | Enabled by default
 [logical_disk](docs/collector.logical_disk.md) | Logical disks, disk I/O | &#10003;
 [logon](docs/collector.logon.md) | User logon sessions |
 [memory](docs/collector.memory.md) | Memory usage metrics |
-[mscluster_cluster](docs/collector.mscluster_cluster.md) | MSCluster cluster metrics |
-[mscluster_network](docs/collector.mscluster_network.md) | MSCluster network metrics |
-[mscluster_node](docs/collector.mscluster_node.md) | MSCluster Node metrics |
-[mscluster_resource](docs/collector.mscluster_resource.md) | MSCluster Resource metrics |
-[mscluster_resourcegroup](docs/collector.mscluster_resourcegroup.md) | MSCluster ResourceGroup metrics |
+[mscluster](docs/collector.mscluster.md) | MSCluster metrics |
 [msmq](docs/collector.msmq.md) | MSMQ queues |
 [mssql](docs/collector.mssql.md) | [SQL Server Performance Objects](https://docs.microsoft.com/en-us/sql/relational-databases/performance-monitor/use-sql-server-objects#SQLServerPOs) metrics  |
 [netframework_clrexceptions](docs/collector.netframework_clrexceptions.md) | .NET Framework CLR Exceptions |
@@ -60,7 +56,7 @@ Name     | Description | Enabled by default
 [time](docs/collector.time.md) | Windows Time Service |
 [thermalzone](docs/collector.thermalzone.md) | Thermal information
 [terminal_services](docs/collector.terminal_services.md) | Terminal services (RDS)
-[textfile](docs/collector.textfile.md) | Read prometheus metrics from a text file | &#10003;
+[textfile](docs/collector.textfile.md) | Read prometheus metrics from a text file |
 [vmware_blast](docs/collector.vmware_blast.md) | VMware Blast session metrics |
 [vmware](docs/collector.vmware.md) | Performance counters installed by the Vmware Guest agent |
 
@@ -104,17 +100,17 @@ Each release provides a .msi installer. The installer will setup the windows_exp
 
 If the installer is run without any parameters, the exporter will run with default settings for enabled collectors, ports, etc. The following parameters are available:
 
-| Name                             | Description                                                                                                                                           |
-|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ENABLED_COLLECTORS`             | As the `--collectors.enabled` flag, provide a comma-separated list of enabled collectors                                                              |
-| `LISTEN_ADDR`                    | The IP address to bind to. Defaults to an empty string. (any local address)                                                                           |
-| `LISTEN_PORT`                    | The port to bind to. Defaults to `9182`.                                                                                                              |
-| `METRICS_PATH`                   | The path at which to serve metrics. Defaults to `/metrics`                                                                                            |
-| `TEXTFILE_DIRS`                  | As the `--collector.textfile.directories` flag, provide a directory to read text files with metrics from                                              |
-| `REMOTE_ADDR`                    | Allows setting comma separated remote IP addresses for the Windows Firewall exception (allow list). Defaults to an empty string (any remote address). |
-| `EXTRA_FLAGS`                    | Allows passing full CLI flags. Defaults to an empty string.                                                                                           |
-| `ADD_FIREWALL_EXCEPTION`         | Setup an firewall exception for windows_exporter. Defaults to `yes`.                                                                                  |
-| `ENABLE_V1_PERFORMANCE_COUNTERS` | Enables V1 performance counter on modern systems. Defaults to `yes`.                                                                                  |
+| Name                             | Description                                                                                                                                                            |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ENABLED_COLLECTORS`             | As the `--collectors.enabled` flag, provide a comma-separated list of enabled collectors                                                                               |
+| `LISTEN_ADDR`                    | The IP address to bind to. Defaults to an empty string. (any local address)                                                                                            |
+| `LISTEN_PORT`                    | The port to bind to. Defaults to `9182`.                                                                                                                               |
+| `METRICS_PATH`                   | The path at which to serve metrics. Defaults to `/metrics`                                                                                                             |
+| `TEXTFILE_DIRS`                  | Use the `--collector.textfile.directories` flag to specify one or more directories, separated by commas, where the collector should read text files containing metrics |
+| `REMOTE_ADDR`                    | Allows setting comma separated remote IP addresses for the Windows Firewall exception (allow list). Defaults to an empty string (any remote address).                  |
+| `EXTRA_FLAGS`                    | Allows passing full CLI flags. Defaults to an empty string.                                                                                                            |
+| `ADD_FIREWALL_EXCEPTION`         | Setup an firewall exception for windows_exporter. Defaults to `yes`.                                                                                                   |
+| `ENABLE_V1_PERFORMANCE_COUNTERS` | Enables V1 performance counter on modern systems. Defaults to `yes`.                                                                                                   |
 
 Parameters are sent to the installer via `msiexec`. Example invocations:
 

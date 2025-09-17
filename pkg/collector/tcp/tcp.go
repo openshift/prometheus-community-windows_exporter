@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yusufpapurcu/wmi"
 )
 
 const Name = "tcp"
@@ -17,93 +18,99 @@ type Config struct{}
 
 var ConfigDefaults = Config{}
 
-// A collector is a Prometheus collector for WMI Win32_PerfRawData_Tcpip_TCPv{4,6} metrics
-type collector struct {
-	logger log.Logger
+// A Collector is a Prometheus Collector for WMI Win32_PerfRawData_Tcpip_TCPv{4,6} metrics.
+type Collector struct {
+	config Config
 
-	ConnectionFailures         *prometheus.Desc
-	ConnectionsActive          *prometheus.Desc
-	ConnectionsEstablished     *prometheus.Desc
-	ConnectionsPassive         *prometheus.Desc
-	ConnectionsReset           *prometheus.Desc
-	SegmentsTotal              *prometheus.Desc
-	SegmentsReceivedTotal      *prometheus.Desc
-	SegmentsRetransmittedTotal *prometheus.Desc
-	SegmentsSentTotal          *prometheus.Desc
+	connectionFailures         *prometheus.Desc
+	connectionsActive          *prometheus.Desc
+	connectionsEstablished     *prometheus.Desc
+	connectionsPassive         *prometheus.Desc
+	connectionsReset           *prometheus.Desc
+	segmentsTotal              *prometheus.Desc
+	segmentsReceivedTotal      *prometheus.Desc
+	segmentsRetransmittedTotal *prometheus.Desc
+	segmentsSentTotal          *prometheus.Desc
 }
 
-func New(logger log.Logger, _ *Config) types.Collector {
-	c := &collector{}
-	c.SetLogger(logger)
+func New(config *Config) *Collector {
+	if config == nil {
+		config = &ConfigDefaults
+	}
+
+	c := &Collector{
+		config: *config,
+	}
+
 	return c
 }
 
-func NewWithFlags(_ *kingpin.Application) types.Collector {
-	return &collector{}
+func NewWithFlags(_ *kingpin.Application) *Collector {
+	return &Collector{}
 }
 
-func (c *collector) GetName() string {
+func (c *Collector) GetName() string {
 	return Name
 }
 
-func (c *collector) SetLogger(logger log.Logger) {
-	c.logger = log.With(logger, "collector", Name)
-}
-
-func (c *collector) GetPerfCounter() ([]string, error) {
+func (c *Collector) GetPerfCounter(_ log.Logger) ([]string, error) {
 	return []string{"TCPv4"}, nil
 }
 
-func (c *collector) Build() error {
-	c.ConnectionFailures = prometheus.NewDesc(
+func (c *Collector) Close() error {
+	return nil
+}
+
+func (c *Collector) Build(_ log.Logger, _ *wmi.Client) error {
+	c.connectionFailures = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "connection_failures_total"),
 		"(TCP.ConnectionFailures)",
 		[]string{"af"},
 		nil,
 	)
-	c.ConnectionsActive = prometheus.NewDesc(
+	c.connectionsActive = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "connections_active_total"),
 		"(TCP.ConnectionsActive)",
 		[]string{"af"},
 		nil,
 	)
-	c.ConnectionsEstablished = prometheus.NewDesc(
+	c.connectionsEstablished = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "connections_established"),
 		"(TCP.ConnectionsEstablished)",
 		[]string{"af"},
 		nil,
 	)
-	c.ConnectionsPassive = prometheus.NewDesc(
+	c.connectionsPassive = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "connections_passive_total"),
 		"(TCP.ConnectionsPassive)",
 		[]string{"af"},
 		nil,
 	)
-	c.ConnectionsReset = prometheus.NewDesc(
+	c.connectionsReset = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "connections_reset_total"),
 		"(TCP.ConnectionsReset)",
 		[]string{"af"},
 		nil,
 	)
-	c.SegmentsTotal = prometheus.NewDesc(
+	c.segmentsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "segments_total"),
 		"(TCP.SegmentsTotal)",
 		[]string{"af"},
 		nil,
 	)
-	c.SegmentsReceivedTotal = prometheus.NewDesc(
+	c.segmentsReceivedTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "segments_received_total"),
 		"(TCP.SegmentsReceivedTotal)",
 		[]string{"af"},
 		nil,
 	)
-	c.SegmentsRetransmittedTotal = prometheus.NewDesc(
+	c.segmentsRetransmittedTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "segments_retransmitted_total"),
 		"(TCP.SegmentsRetransmittedTotal)",
 		[]string{"af"},
 		nil,
 	)
-	c.SegmentsSentTotal = prometheus.NewDesc(
+	c.segmentsSentTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "segments_sent_total"),
 		"(TCP.SegmentsSentTotal)",
 		[]string{"af"},
@@ -114,9 +121,10 @@ func (c *collector) Build() error {
 
 // Collect sends the metric values for each metric
 // to the provided prometheus Metric channel.
-func (c *collector) Collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
-	if err := c.collect(ctx, ch); err != nil {
-		_ = level.Error(c.logger).Log("msg", "failed collecting tcp metrics", "err", err)
+func (c *Collector) Collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
+	if err := c.collect(ctx, logger, ch); err != nil {
+		_ = level.Error(logger).Log("msg", "failed collecting tcp metrics", "err", err)
 		return err
 	}
 	return nil
@@ -137,68 +145,69 @@ type tcp struct {
 	SegmentsSentPersec          float64 `perflib:"Segments Sent/sec"`
 }
 
-func writeTCPCounters(metrics tcp, labels []string, c *collector, ch chan<- prometheus.Metric) {
+func writeTCPCounters(metrics tcp, labels []string, c *Collector, ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(
-		c.ConnectionFailures,
+		c.connectionFailures,
 		prometheus.CounterValue,
 		metrics.ConnectionFailures,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.ConnectionsActive,
+		c.connectionsActive,
 		prometheus.CounterValue,
 		metrics.ConnectionsActive,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.ConnectionsEstablished,
+		c.connectionsEstablished,
 		prometheus.GaugeValue,
 		metrics.ConnectionsEstablished,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.ConnectionsPassive,
+		c.connectionsPassive,
 		prometheus.CounterValue,
 		metrics.ConnectionsPassive,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.ConnectionsReset,
+		c.connectionsReset,
 		prometheus.CounterValue,
 		metrics.ConnectionsReset,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.SegmentsTotal,
+		c.segmentsTotal,
 		prometheus.CounterValue,
 		metrics.SegmentsPersec,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.SegmentsReceivedTotal,
+		c.segmentsReceivedTotal,
 		prometheus.CounterValue,
 		metrics.SegmentsReceivedPersec,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.SegmentsRetransmittedTotal,
+		c.segmentsRetransmittedTotal,
 		prometheus.CounterValue,
 		metrics.SegmentsRetransmittedPersec,
 		labels...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		c.SegmentsSentTotal,
+		c.segmentsSentTotal,
 		prometheus.CounterValue,
 		metrics.SegmentsSentPersec,
 		labels...,
 	)
 }
 
-func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metric) error {
+func (c *Collector) collect(ctx *types.ScrapeContext, logger log.Logger, ch chan<- prometheus.Metric) error {
+	logger = log.With(logger, "collector", Name)
 	var dst []tcp
 
 	// TCPv4 counters
-	if err := perflib.UnmarshalObject(ctx.PerfObjects["TCPv4"], &dst, c.logger); err != nil {
+	if err := perflib.UnmarshalObject(ctx.PerfObjects["TCPv4"], &dst, logger); err != nil {
 		return err
 	}
 	if len(dst) != 0 {
@@ -206,7 +215,7 @@ func (c *collector) collect(ctx *types.ScrapeContext, ch chan<- prometheus.Metri
 	}
 
 	// TCPv6 counters
-	if err := perflib.UnmarshalObject(ctx.PerfObjects["TCPv6"], &dst, c.logger); err != nil {
+	if err := perflib.UnmarshalObject(ctx.PerfObjects["TCPv6"], &dst, logger); err != nil {
 		return err
 	}
 	if len(dst) != 0 {

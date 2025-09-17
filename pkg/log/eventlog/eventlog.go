@@ -6,6 +6,7 @@ package eventlog
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -54,7 +55,11 @@ type eventlogLogger struct {
 func (l *eventlogLogger) Log(keyvals ...interface{}) error {
 	priority := l.prioritySelector(keyvals...)
 
-	lb := l.getLoggerBuf()
+	lb, err := l.getLoggerBuf()
+	if err != nil {
+		return err
+	}
+
 	defer l.putLoggerBuf(lb)
 	if err := lb.logger.Log(keyvals...); err != nil {
 		return err
@@ -65,7 +70,7 @@ func (l *eventlogLogger) Log(keyvals ...interface{}) error {
 
 	msg, err := syscall.UTF16PtrFromString(lb.buf.String())
 	if err != nil {
-		return fmt.Errorf("error convert string to UTF-16: %v", err)
+		return fmt.Errorf("error convert string to UTF-16: %w", err)
 	}
 
 	ss := []*uint16{msg, nil, nil, nil, nil, nil, nil, nil, nil}
@@ -77,15 +82,19 @@ type loggerBuf struct {
 	logger log.Logger
 }
 
-func (l *eventlogLogger) getLoggerBuf() *loggerBuf {
-	lb := l.bufPool.Get().(*loggerBuf)
+func (l *eventlogLogger) getLoggerBuf() (*loggerBuf, error) {
+	lb, ok := l.bufPool.Get().(*loggerBuf)
+	if !ok {
+		return nil, errors.New("failed to get loggerBuf from pool")
+	}
+
 	if lb.buf == nil {
 		lb.buf = &bytes.Buffer{}
 		lb.logger = l.newLogger(lb.buf)
 	} else {
 		lb.buf.Reset()
 	}
-	return lb
+	return lb, nil
 }
 
 func (l *eventlogLogger) putLoggerBuf(lb *loggerBuf) {
@@ -95,7 +104,7 @@ func (l *eventlogLogger) putLoggerBuf(lb *loggerBuf) {
 // PrioritySelector inspects the list of keyvals and selects an eventlog priority.
 type PrioritySelector func(keyvals ...interface{}) Priority
 
-// defaultPrioritySelector convert a kit/log level into a Windows Eventlog level
+// defaultPrioritySelector convert a kit/log level into a Windows Eventlog level.
 func defaultPrioritySelector(keyvals ...interface{}) Priority {
 	l := len(keyvals)
 

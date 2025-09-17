@@ -8,16 +8,18 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/prometheus-community/windows_exporter/pkg/collector"
-	"github.com/prometheus-community/windows_exporter/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
-func FuncBenchmarkCollector(b *testing.B, name string, collectFunc types.CollectorBuilderWithFlags) {
+func FuncBenchmarkCollector[C collector.Collector](b *testing.B, name string, collectFunc collector.BuilderWithFlags[C]) {
+	b.Helper()
+
+	logger := log.NewNopLogger()
+
 	c := collectFunc(kingpin.CommandLine)
-	collectors := collector.New(map[string]types.Collector{name: c})
-	require.NoError(b, collectors.Build())
-	collectors.SetLogger(log.NewNopLogger())
+	collectors := collector.New(map[string]collector.Collector{name: c})
+	require.NoError(b, collectors.Build(logger))
 
 	// Create perflib scrape context.
 	// Some perflib collectors required a correct context,
@@ -33,6 +35,6 @@ func FuncBenchmarkCollector(b *testing.B, name string, collectFunc types.Collect
 	}()
 
 	for i := 0; i < b.N; i++ {
-		require.NoError(b, c.Collect(scrapeContext, metrics))
+		require.NoError(b, c.Collect(scrapeContext, logger, metrics))
 	}
 }

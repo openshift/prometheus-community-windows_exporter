@@ -3,12 +3,13 @@
 package collector
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
-
 	"github.com/prometheus-community/windows_exporter/pkg/collector/ad"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/adcs"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/adfs"
@@ -22,17 +23,14 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/diskdrive"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/dns"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/exchange"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/fsrmquota"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/hyperv"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/iis"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/license"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logical_disk"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/logon"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/memory"
-	"github.com/prometheus-community/windows_exporter/pkg/collector/mscluster_cluster"
-	"github.com/prometheus-community/windows_exporter/pkg/collector/mscluster_network"
-	"github.com/prometheus-community/windows_exporter/pkg/collector/mscluster_node"
-	"github.com/prometheus-community/windows_exporter/pkg/collector/mscluster_resource"
-	"github.com/prometheus-community/windows_exporter/pkg/collector/mscluster_resourcegroup"
+	"github.com/prometheus-community/windows_exporter/pkg/collector/mscluster"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/msmq"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/mssql"
 	"github.com/prometheus-community/windows_exporter/pkg/collector/net"
@@ -66,20 +64,14 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector/vmware_blast"
 	"github.com/prometheus-community/windows_exporter/pkg/perflib"
 	"github.com/prometheus-community/windows_exporter/pkg/types"
+	"github.com/yusufpapurcu/wmi"
 )
 
-type Collectors struct {
-	logger log.Logger
+// NewWithFlags To be called by the exporter for collector initialization before running kingpin.Parse.
+func NewWithFlags(app *kingpin.Application) *Collectors {
+	collectors := map[string]Collector{}
 
-	collectors       map[string]types.Collector
-	perfCounterQuery string
-}
-
-// NewWithFlags To be called by the exporter for collector initialization before running kingpin.Parse
-func NewWithFlags(app *kingpin.Application) Collectors {
-	collectors := map[string]types.Collector{}
-
-	for name, builder := range Map {
+	for name, builder := range BuildersWithFlags {
 		collectors[name] = builder(app)
 	}
 
@@ -89,84 +81,75 @@ func NewWithFlags(app *kingpin.Application) Collectors {
 // NewWithConfig To be called by the external libraries for collector initialization without running kingpin.Parse
 //
 //goland:noinspection GoUnusedExportedFunction
-func NewWithConfig(logger log.Logger, config Config) Collectors {
-	collectors := map[string]types.Collector{}
-	collectors[ad.Name] = ad.New(logger, &config.Ad)
-	collectors[adcs.Name] = adcs.New(logger, &config.Adcs)
-	collectors[adfs.Name] = adfs.New(logger, &config.Adfs)
-	collectors[cache.Name] = cache.New(logger, &config.Cache)
-	collectors[container.Name] = container.New(logger, &config.Container)
-	collectors[cpu.Name] = cpu.New(logger, &config.Cpu)
-	collectors[cpu_info.Name] = cpu_info.New(logger, &config.CpuInfo)
-	collectors[cs.Name] = cs.New(logger, &config.Cs)
-	collectors[dfsr.Name] = dfsr.New(logger, &config.Dfsr)
-	collectors[dhcp.Name] = dhcp.New(logger, &config.Dhcp)
-	collectors[diskdrive.Name] = diskdrive.New(logger, &config.Diskdrive)
-	collectors[dns.Name] = dns.New(logger, &config.Dns)
-	collectors[exchange.Name] = exchange.New(logger, &config.Exchange)
-	collectors[exchange.Name] = exchange.New(logger, &config.Fsrmquota)
-	collectors[hyperv.Name] = hyperv.New(logger, &config.Hyperv)
-	collectors[iis.Name] = iis.New(logger, &config.Iis)
-	collectors[license.Name] = license.New(logger, &config.License)
-	collectors[logical_disk.Name] = logical_disk.New(logger, &config.LogicalDisk)
-	collectors[logon.Name] = logon.New(logger, &config.Logon)
-	collectors[memory.Name] = memory.New(logger, &config.Memory)
-	collectors[mscluster_cluster.Name] = mscluster_cluster.New(logger, &config.MsclusterCluster)
-	collectors[mscluster_network.Name] = mscluster_network.New(logger, &config.MsclusterNetwork)
-	collectors[mscluster_node.Name] = mscluster_node.New(logger, &config.MsclusterNode)
-	collectors[mscluster_resource.Name] = mscluster_resource.New(logger, &config.MsclusterResource)
-	collectors[mscluster_resourcegroup.Name] = mscluster_resourcegroup.New(logger, &config.MsclusterResourceGroup)
-	collectors[msmq.Name] = msmq.New(logger, &config.Msmq)
-	collectors[mssql.Name] = mssql.New(logger, &config.Mssql)
-	collectors[net.Name] = net.New(logger, &config.Net)
-	collectors[netframework_clrexceptions.Name] = netframework_clrexceptions.New(logger, &config.NetframeworkClrexceptions)
-	collectors[netframework_clrinterop.Name] = netframework_clrinterop.New(logger, &config.NetframeworkClrinterop)
-	collectors[netframework_clrjit.Name] = netframework_clrjit.New(logger, &config.NetframeworkClrjit)
-	collectors[netframework_clrloading.Name] = netframework_clrloading.New(logger, &config.NetframeworkClrloading)
-	collectors[netframework_clrlocksandthreads.Name] = netframework_clrlocksandthreads.New(logger, &config.NetframeworkClrlocksandthreads)
-	collectors[netframework_clrmemory.Name] = netframework_clrmemory.New(logger, &config.NetframeworkClrmemory)
-	collectors[netframework_clrremoting.Name] = netframework_clrremoting.New(logger, &config.NetframeworkClrremoting)
-	collectors[netframework_clrsecurity.Name] = netframework_clrsecurity.New(logger, &config.NetframeworkClrsecurity)
-	collectors[nps.Name] = nps.New(logger, &config.Nps)
-	collectors[os.Name] = os.New(logger, &config.Os)
-	collectors[physical_disk.Name] = physical_disk.New(logger, &config.PhysicalDisk)
-	collectors[printer.Name] = printer.New(logger, &config.Printer)
-	collectors[process.Name] = process.New(logger, &config.Process)
-	collectors[remote_fx.Name] = remote_fx.New(logger, &config.RemoteFx)
-	collectors[scheduled_task.Name] = scheduled_task.New(logger, &config.ScheduledTask)
-	collectors[service.Name] = service.New(logger, &config.Service)
-	collectors[smb.Name] = smb.New(logger, &config.Smb)
-	collectors[smbclient.Name] = smbclient.New(logger, &config.SmbClient)
-	collectors[smtp.Name] = smtp.New(logger, &config.Smtp)
-	collectors[system.Name] = system.New(logger, &config.System)
-	collectors[teradici_pcoip.Name] = teradici_pcoip.New(logger, &config.TeradiciPcoip)
-	collectors[tcp.Name] = tcp.New(logger, &config.Tcp)
-	collectors[terminal_services.Name] = terminal_services.New(logger, &config.TerminalServices)
-	collectors[textfile.Name] = textfile.New(logger, &config.Textfile)
-	collectors[thermalzone.Name] = thermalzone.New(logger, &config.Thermalzone)
-	collectors[time.Name] = time.New(logger, &config.Time)
-	collectors[vmware.Name] = vmware.New(logger, &config.Vmware)
-	collectors[vmware_blast.Name] = vmware_blast.New(logger, &config.VmwareBlast)
+func NewWithConfig(config Config) *Collectors {
+	collectors := map[string]Collector{}
+	collectors[ad.Name] = ad.New(&config.AD)
+	collectors[adcs.Name] = adcs.New(&config.ADCS)
+	collectors[adfs.Name] = adfs.New(&config.ADFS)
+	collectors[cache.Name] = cache.New(&config.Cache)
+	collectors[container.Name] = container.New(&config.Container)
+	collectors[cpu.Name] = cpu.New(&config.CPU)
+	collectors[cpu_info.Name] = cpu_info.New(&config.CPUInfo)
+	collectors[cs.Name] = cs.New(&config.Cs)
+	collectors[dfsr.Name] = dfsr.New(&config.DFSR)
+	collectors[dhcp.Name] = dhcp.New(&config.Dhcp)
+	collectors[diskdrive.Name] = diskdrive.New(&config.DiskDrive)
+	collectors[dns.Name] = dns.New(&config.DNS)
+	collectors[exchange.Name] = exchange.New(&config.Exchange)
+	collectors[fsrmquota.Name] = fsrmquota.New(&config.Fsrmquota)
+	collectors[hyperv.Name] = hyperv.New(&config.Hyperv)
+	collectors[iis.Name] = iis.New(&config.IIS)
+	collectors[license.Name] = license.New(&config.License)
+	collectors[logical_disk.Name] = logical_disk.New(&config.LogicalDisk)
+	collectors[logon.Name] = logon.New(&config.Logon)
+	collectors[memory.Name] = memory.New(&config.Memory)
+	collectors[mscluster.Name] = mscluster.New(&config.Mscluster)
+	collectors[msmq.Name] = msmq.New(&config.Msmq)
+	collectors[mssql.Name] = mssql.New(&config.Mssql)
+	collectors[net.Name] = net.New(&config.Net)
+	collectors[netframework_clrexceptions.Name] = netframework_clrexceptions.New(&config.NetframeworkClrexceptions)
+	collectors[netframework_clrinterop.Name] = netframework_clrinterop.New(&config.NetframeworkClrinterop)
+	collectors[netframework_clrjit.Name] = netframework_clrjit.New(&config.NetframeworkClrjit)
+	collectors[netframework_clrloading.Name] = netframework_clrloading.New(&config.NetframeworkClrloading)
+	collectors[netframework_clrlocksandthreads.Name] = netframework_clrlocksandthreads.New(&config.NetframeworkClrlocksandthreads)
+	collectors[netframework_clrmemory.Name] = netframework_clrmemory.New(&config.NetframeworkClrmemory)
+	collectors[netframework_clrremoting.Name] = netframework_clrremoting.New(&config.NetframeworkClrremoting)
+	collectors[netframework_clrsecurity.Name] = netframework_clrsecurity.New(&config.NetframeworkClrsecurity)
+	collectors[nps.Name] = nps.New(&config.Nps)
+	collectors[os.Name] = os.New(&config.Os)
+	collectors[physical_disk.Name] = physical_disk.New(&config.PhysicalDisk)
+	collectors[printer.Name] = printer.New(&config.Printer)
+	collectors[process.Name] = process.New(&config.Process)
+	collectors[remote_fx.Name] = remote_fx.New(&config.RemoteFx)
+	collectors[scheduled_task.Name] = scheduled_task.New(&config.ScheduledTask)
+	collectors[service.Name] = service.New(&config.Service)
+	collectors[smb.Name] = smb.New(&config.SMB)
+	collectors[smbclient.Name] = smbclient.New(&config.SMBClient)
+	collectors[smtp.Name] = smtp.New(&config.SMTP)
+	collectors[system.Name] = system.New(&config.System)
+	collectors[teradici_pcoip.Name] = teradici_pcoip.New(&config.TeradiciPcoip)
+	collectors[tcp.Name] = tcp.New(&config.TCP)
+	collectors[terminal_services.Name] = terminal_services.New(&config.TerminalServices)
+	collectors[textfile.Name] = textfile.New(&config.Textfile)
+	collectors[thermalzone.Name] = thermalzone.New(&config.Thermalzone)
+	collectors[time.Name] = time.New(&config.Time)
+	collectors[vmware.Name] = vmware.New(&config.Vmware)
+	collectors[vmware_blast.Name] = vmware_blast.New(&config.VmwareBlast)
 
 	return New(collectors)
 }
 
-// New To be called by the external libraries for collector initialization
-func New(collectors map[string]types.Collector) Collectors {
-	return Collectors{
+// New To be called by the external libraries for collector initialization.
+func New(collectors Map) *Collectors {
+	return &Collectors{
 		collectors: collectors,
+		wmiClient: &wmi.Client{
+			AllowMissingFields: true,
+		},
 	}
 }
 
-func (c *Collectors) SetLogger(logger log.Logger) {
-	c.logger = logger
-
-	for _, collector := range c.collectors {
-		collector.SetLogger(logger)
-	}
-}
-
-func (c *Collectors) SetPerfCounterQuery() error {
+func (c *Collectors) SetPerfCounterQuery(logger log.Logger) error {
 	var (
 		err error
 
@@ -177,7 +160,7 @@ func (c *Collectors) SetPerfCounterQuery() error {
 	perfCounterDependencies := make([]string, 0, len(c.collectors))
 
 	for _, collector := range c.collectors {
-		perfCounterNames, err = collector.GetPerfCounter()
+		perfCounterNames, err = collector.GetPerfCounter(logger)
 		if err != nil {
 			return err
 		}
@@ -195,7 +178,7 @@ func (c *Collectors) SetPerfCounterQuery() error {
 	return nil
 }
 
-// Enable removes all collectors that not enabledCollectors
+// Enable removes all collectors that not enabledCollectors.
 func (c *Collectors) Enable(enabledCollectors []string) {
 	for name := range c.collectors {
 		if !slices.Contains(enabledCollectors, name) {
@@ -204,19 +187,25 @@ func (c *Collectors) Enable(enabledCollectors []string) {
 	}
 }
 
-// Build To be called by the exporter for collector initialization
-func (c *Collectors) Build() error {
+// Build To be called by the exporter for collector initialization.
+func (c *Collectors) Build(logger log.Logger) error {
 	var err error
+
+	c.wmiClient.SWbemServicesClient, err = wmi.InitializeSWbemServices(c.wmiClient)
+	if err != nil {
+		return fmt.Errorf("initialize SWbemServices: %w", err)
+	}
+
 	for _, collector := range c.collectors {
-		if err = collector.Build(); err != nil {
-			return err
+		if err = collector.Build(logger, c.wmiClient); err != nil {
+			return fmt.Errorf("error build collector %s: %w", collector.GetName(), err)
 		}
 	}
 
 	return nil
 }
 
-// PrepareScrapeContext creates a ScrapeContext to be used during a single scrape
+// PrepareScrapeContext creates a ScrapeContext to be used during a single scrape.
 func (c *Collectors) PrepareScrapeContext() (*types.ScrapeContext, error) {
 	objs, err := perflib.GetPerflibSnapshot(c.perfCounterQuery)
 	if err != nil {
@@ -224,4 +213,23 @@ func (c *Collectors) PrepareScrapeContext() (*types.ScrapeContext, error) {
 	}
 
 	return &types.ScrapeContext{PerfObjects: objs}, nil
+}
+
+// Close To be called by the exporter for collector cleanup.
+func (c *Collectors) Close() error {
+	errs := make([]error, 0, len(c.collectors))
+
+	for _, collector := range c.collectors {
+		if err := collector.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if c.wmiClient != nil && c.wmiClient.SWbemServicesClient != nil {
+		if err := c.wmiClient.SWbemServicesClient.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
