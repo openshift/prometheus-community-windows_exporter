@@ -1,10 +1,10 @@
 ---
 # Note this is not an exhaustive list of all configuration values
 collectors:
-  enabled: cpu,cs,logical_disk,net,os,service,system,textfile
+  enabled: cpu,logical_disk,net,os,service,system
 collector:
   service:
-    services-where: Name='windows_exporter'
+    include: "windows_exporter"
   scheduled_task:
     include: /Microsoft/.+
 log:
@@ -13,6 +13,5 @@ scrape:
   timeout-margin: 0.5
 telemetry:
   path: /metrics
-  max-requests: 5
 web:
   listen-address: ":9182"

@@ -6,17 +6,12 @@ The textfile collector exposes metrics from files written by other processes.
 -|-
 Metric name prefix  | `textfile`
 Classes             | None
-Enabled by default? | Yes
+Enabled by default? | No
 
 ## Flags
 
-### `--collector.textfile.directory` 
-:warning: DEPRECATED Use `--collector.textfile.directories`
-
-<br>
-
 ### `--collector.textfile.directories`
-One or multiple directories containing the files to be ingested. 
+One or multiple directories containing the files to be ingested.
 
 E.G. `--collector.textfile.directories="C:\MyDir1,C:\MyDir2"`
 
