@@ -65,7 +65,7 @@ jobs:
         run: make promtool
 
       - name: Upload windows_exporter.exe
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: windows_exporter.amd64.exe
