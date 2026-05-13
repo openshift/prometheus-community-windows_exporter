@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -36,14 +38,19 @@ func TestGetTCPConnectionStates(t *testing.T) {
 func TestGetOwnerPIDOfTCPPort(t *testing.T) {
 	t.Parallel()
 
-	lister, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConf net.ListenConfig
+
+	lister, err := listenConf.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		require.NoError(t, lister.Close())
 	})
 
-	pid, err := iphlpapi.GetOwnerPIDOfTCPPort(windows.AF_INET, uint16(lister.Addr().(*net.TCPAddr).Port))
+	tcpAddr, ok := lister.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+
+	pid, err := iphlpapi.GetOwnerPIDOfTCPPort(windows.AF_INET, uint16(tcpAddr.Port))
 	require.NoError(t, err)
 	require.EqualValues(t, os.Getpid(), pid)
 }

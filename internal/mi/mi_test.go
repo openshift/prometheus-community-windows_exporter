@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -20,7 +22,9 @@ import (
 	"time"
 
 	"github.com/prometheus-community/windows_exporter/internal/mi"
+	"github.com/prometheus-community/windows_exporter/internal/utils/testutils"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 type win32Process struct {
@@ -28,7 +32,7 @@ type win32Process struct {
 }
 
 func Test_MI_Application_Initialize(t *testing.T) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 	require.NotEmpty(t, application)
 
@@ -37,7 +41,7 @@ func Test_MI_Application_Initialize(t *testing.T) {
 }
 
 func Test_MI_Application_TestConnection(t *testing.T) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 	require.NotEmpty(t, application)
 
@@ -67,7 +71,7 @@ func Test_MI_Application_TestConnection(t *testing.T) {
 }
 
 func Test_MI_Query(t *testing.T) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 	require.NotEmpty(t, application)
 
@@ -120,7 +124,7 @@ func Test_MI_Query(t *testing.T) {
 }
 
 func Test_MI_QueryUnmarshal(t *testing.T) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 	require.NotEmpty(t, application)
 
@@ -155,7 +159,7 @@ func Test_MI_QueryUnmarshal(t *testing.T) {
 }
 
 func Test_MI_EmptyQuery(t *testing.T) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 	require.NotEmpty(t, application)
 
@@ -194,7 +198,7 @@ func Test_MI_EmptyQuery(t *testing.T) {
 }
 
 func Test_MI_Query_Unmarshal(t *testing.T) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 	require.NotEmpty(t, application)
 
@@ -231,4 +235,55 @@ func Test_MI_Query_Unmarshal(t *testing.T) {
 
 	err = application.Close()
 	require.NoError(t, err)
+}
+
+func Test_MI_FD_Leak(t *testing.T) {
+	application, err := mi.ApplicationInitialize()
+	require.NoError(t, err)
+	require.NotEmpty(t, application)
+
+	session, err := application.NewSession(nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, session)
+
+	currentFileHandle, err := testutils.GetProcessHandleCount(windows.CurrentProcess())
+	require.NoError(t, err)
+
+	t.Log("Current File Handle Count: ", currentFileHandle)
+
+	queryPrinter, err := mi.NewQuery("SELECT Name FROM Win32_Process")
+	require.NoError(t, err)
+
+	for range 300 {
+		var processes []win32Process
+
+		err := session.Query(&processes, mi.NamespaceRootCIMv2, queryPrinter)
+		require.NoError(t, err)
+
+		currentFileHandle, err = testutils.GetProcessHandleCount(windows.CurrentProcess())
+		require.NoError(t, err)
+
+		t.Log("Current File Handle Count: ", currentFileHandle)
+	}
+
+	currentFileHandle, err = testutils.GetProcessHandleCount(windows.CurrentProcess())
+	require.NoError(t, err)
+
+	t.Log("Current File Handle Count: ", currentFileHandle)
+
+	err = session.Close()
+	require.NoError(t, err)
+
+	currentFileHandle, err = testutils.GetProcessHandleCount(windows.CurrentProcess())
+	require.NoError(t, err)
+
+	t.Log("Current File Handle Count: ", currentFileHandle)
+
+	err = application.Close()
+	require.NoError(t, err)
+
+	currentFileHandle, err = testutils.GetProcessHandleCount(windows.CurrentProcess())
+	require.NoError(t, err)
+
+	t.Log("Current File Handle Count: ", currentFileHandle)
 }

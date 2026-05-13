@@ -1,3 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//go:build windows
+
 package registry
 
 import (
@@ -36,8 +53,7 @@ func NewCollector[T any](object string, _ []string) (*Collector, error) {
 		counters:       make(map[string]Counter),
 	}
 
-	var values [0]T
-	valueType := reflect.TypeOf(values).Elem()
+	valueType := reflect.TypeFor[T]()
 
 	if f, ok := valueType.FieldByName("Name"); ok {
 		if f.Type.Kind() == reflect.String {
@@ -46,9 +62,12 @@ func NewCollector[T any](object string, _ []string) (*Collector, error) {
 	}
 
 	for _, f := range reflect.VisibleFields(valueType) {
-		counterName, ok := f.Tag.Lookup("perfdata")
+		counterName, ok := f.Tag.Lookup("perfdata_v1")
 		if !ok {
-			continue
+			counterName, ok = f.Tag.Lookup("perfdata")
+			if !ok {
+				continue
+			}
 		}
 
 		var counter Counter
@@ -60,9 +79,7 @@ func NewCollector[T any](object string, _ []string) (*Collector, error) {
 			}
 		}
 
-		if strings.HasSuffix(counterName, ",secondvalue") {
-			counterName = strings.TrimSuffix(counterName, ",secondvalue")
-
+		if counterName, ok = strings.CutSuffix(counterName, ",secondvalue"); ok {
 			counter.FieldIndexSecondValue = f.Index[0]
 		} else {
 			counter.FieldIndexValue = f.Index[0]

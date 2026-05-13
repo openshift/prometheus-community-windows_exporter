@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -109,30 +111,35 @@ func (c *Collector) collectHTTPProxy(ch chan<- prometheus.Metric) error {
 			utils.MilliSecToSec(data.MailboxServerLocatorAverageLatency),
 			labelName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.averageAuthenticationLatency,
 			prometheus.GaugeValue,
 			data.AverageAuthenticationLatency,
 			labelName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.averageCASProcessingLatency,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.AverageCASProcessingLatency),
 			labelName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.mailboxServerProxyFailureRate,
 			prometheus.GaugeValue,
 			data.MailboxServerProxyFailureRate,
 			labelName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.outstandingProxyRequests,
 			prometheus.GaugeValue,
 			data.OutstandingProxyRequests,
 			labelName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.proxyRequestsPerSec,
 			prometheus.CounterValue,

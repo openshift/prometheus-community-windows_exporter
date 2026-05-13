@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -28,6 +30,8 @@ var (
 	procGetDynamicTimeZoneInformationSys = modkernel32.NewProc("GetDynamicTimeZoneInformation")
 	procKernelLocalFileTimeToFileTime    = modkernel32.NewProc("LocalFileTimeToFileTime")
 	procGetTickCount                     = modkernel32.NewProc("GetTickCount64")
+	procOpenJobObject                    = modkernel32.NewProc("OpenJobObjectW")
+	procIsProcessInJob                   = modkernel32.NewProc("IsProcessInJob")
 )
 
 // SYSTEMTIME contains a date and time.

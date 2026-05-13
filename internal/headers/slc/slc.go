@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -48,7 +50,6 @@ func SLIsWindowsGenuineLocal() (SL_GENUINE_STATE, error) {
 	_, _, err := procSLIsWindowsGenuineLocal.Call(
 		uintptr(unsafe.Pointer(&genuineState)),
 	)
-
 	if !errors.Is(err, windows.NTE_OP_OK) {
 		return 0, err
 	}

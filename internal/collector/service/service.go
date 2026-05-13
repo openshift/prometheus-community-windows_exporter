@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -36,8 +38,8 @@ import (
 const Name = "service"
 
 type Config struct {
-	ServiceInclude *regexp.Regexp `yaml:"service_include"`
-	ServiceExclude *regexp.Regexp `yaml:"service_exclude"`
+	ServiceInclude *regexp.Regexp `yaml:"include"`
+	ServiceExclude *regexp.Regexp `yaml:"exclude"`
 }
 
 //nolint:gochecknoglobals
@@ -314,6 +316,7 @@ func (c *Collector) collectService(ch chan<- prometheus.Metric, serviceName stri
 		if startMode == c.apiStartModeValues[serviceConfig.StartType] {
 			isCurrentStartMode = 1.0
 		}
+
 		ch <- prometheus.MustNewConstMetric(
 			c.startMode,
 			prometheus.GaugeValue,
@@ -399,7 +402,6 @@ func (c *Collector) queryAllServices() ([]windows.ENUM_SERVICE_STATUS_PROCESS, e
 			nil,
 			nil,
 		)
-
 		if err == nil {
 			break
 		}
@@ -441,7 +443,6 @@ func (c *Collector) getProcessStartTime(pid uint32) (uint64, error) {
 	)
 
 	err = windows.GetProcessTimes(handle, &creation, &exit, &krn, &user)
-
 	if err := windows.CloseHandle(handle); err != nil {
 		c.logger.LogAttrs(context.Background(), slog.LevelWarn, "failed to close process handle",
 			slog.Any("err", err),

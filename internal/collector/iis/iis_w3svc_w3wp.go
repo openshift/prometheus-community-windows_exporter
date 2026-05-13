@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -439,6 +441,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			pid,
 			"401",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPRequestErrorsTotal,
 			prometheus.CounterValue,
@@ -447,6 +450,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			pid,
 			"403",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPRequestErrorsTotal,
 			prometheus.CounterValue,
@@ -455,6 +459,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			pid,
 			"404",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPRequestErrorsTotal,
 			prometheus.CounterValue,
@@ -463,6 +468,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			pid,
 			"500",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPWebSocketRequestsActive,
 			prometheus.CounterValue,
@@ -470,6 +476,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPWebSocketConnectionAttempts,
 			prometheus.CounterValue,
@@ -477,6 +484,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPWebSocketConnectionsAccepted,
 			prometheus.CounterValue,
@@ -484,6 +492,7 @@ func (c *Collector) collectW3SVCW3WPv8(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPWebSocketConnectionsRejected,
 			prometheus.CounterValue,
@@ -527,6 +536,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			pid,
 			"busy",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMaximumThreads,
 			prometheus.CounterValue,
@@ -534,6 +544,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPRequestsTotal,
 			prometheus.CounterValue,
@@ -541,6 +552,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPRequestsActive,
 			prometheus.CounterValue,
@@ -548,6 +560,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPActiveFlushedEntries,
 			prometheus.GaugeValue,
@@ -555,6 +568,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPCurrentFileCacheMemoryUsage,
 			prometheus.GaugeValue,
@@ -562,6 +576,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMaximumFileCacheMemoryUsage,
 			prometheus.CounterValue,
@@ -569,6 +584,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPFileCacheFlushesTotal,
 			prometheus.CounterValue,
@@ -576,6 +592,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPFileCacheQueriesTotal,
 			prometheus.CounterValue,
@@ -583,6 +600,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPFileCacheHitsTotal,
 			prometheus.CounterValue,
@@ -590,6 +608,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPFilesCached,
 			prometheus.GaugeValue,
@@ -597,6 +616,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPFilesCachedTotal,
 			prometheus.CounterValue,
@@ -604,6 +624,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPFilesFlushedTotal,
 			prometheus.CounterValue,
@@ -611,6 +632,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPURICacheFlushesTotal,
 			prometheus.CounterValue,
@@ -618,6 +640,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPURICacheQueriesTotal,
 			prometheus.CounterValue,
@@ -625,6 +648,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPURICacheHitsTotal,
 			prometheus.CounterValue,
@@ -632,6 +656,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPURIsCached,
 			prometheus.GaugeValue,
@@ -639,6 +664,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPURIsCachedTotal,
 			prometheus.CounterValue,
@@ -646,6 +672,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPURIsFlushedTotal,
 			prometheus.CounterValue,
@@ -653,6 +680,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMetadataCached,
 			prometheus.GaugeValue,
@@ -660,6 +688,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMetadataCacheFlushes,
 			prometheus.CounterValue,
@@ -667,6 +696,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMetadataCacheQueriesTotal,
 			prometheus.CounterValue,
@@ -674,6 +704,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMetadataCacheHitsTotal,
 			prometheus.CounterValue,
@@ -681,6 +712,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMetadataCachedTotal,
 			prometheus.CounterValue,
@@ -688,6 +720,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPMetadataFlushedTotal,
 			prometheus.CounterValue,
@@ -695,6 +728,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheActiveFlushedItems,
 			prometheus.CounterValue,
@@ -702,6 +736,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheItems,
 			prometheus.CounterValue,
@@ -709,6 +744,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheMemoryUsage,
 			prometheus.CounterValue,
@@ -716,6 +752,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheQueriesTotal,
 			prometheus.CounterValue,
@@ -723,6 +760,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheHitsTotal,
 			prometheus.CounterValue,
@@ -730,6 +768,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheFlushedItemsTotal,
 			prometheus.CounterValue,
@@ -737,6 +776,7 @@ func (c *Collector) collectW3SVCW3WPv7(ch chan<- prometheus.Metric) error {
 			name,
 			pid,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.w3SVCW3WPOutputCacheFlushesTotal,
 			prometheus.CounterValue,

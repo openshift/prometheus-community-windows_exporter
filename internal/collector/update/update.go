@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -58,11 +60,14 @@ type Collector struct {
 	mu          sync.RWMutex
 	ctxCancelFn context.CancelFunc
 
+	logger *slog.Logger
+
 	metricsBuf []prometheus.Metric
 
-	pendingUpdate        *prometheus.Desc
-	queryDurationSeconds *prometheus.Desc
-	lastScrapeMetric     *prometheus.Desc
+	pendingUpdate              *prometheus.Desc
+	pendingUpdateLastPublished *prometheus.Desc
+	queryDurationSeconds       *prometheus.Desc
+	lastScrapeMetric           *prometheus.Desc
 }
 
 func New(config *Config) *Collector {
@@ -83,12 +88,12 @@ func NewWithFlags(app *kingpin.Application) *Collector {
 	}
 
 	app.Flag(
-		"collector.updates.online",
+		"collector.update.online",
 		"Whether to search for updates online.",
 	).Default(strconv.FormatBool(ConfigDefaults.Online)).BoolVar(&c.config.Online)
 
 	app.Flag(
-		"collector.updates.scrape-interval",
+		"collector.update.scrape-interval",
 		"Define the interval of scraping Windows Update information.",
 	).Default(ConfigDefaults.ScrapeInterval.String()).DurationVar(&c.config.ScrapeInterval)
 
@@ -102,9 +107,9 @@ func (c *Collector) Close() error {
 }
 
 func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
-	logger = logger.With(slog.String("collector", Name))
+	c.logger = logger.With(slog.String("collector", Name))
 
-	logger.Info("update collector is in an experimental state! The configuration and metrics may change in future. Please report any issues.")
+	c.logger.Info("update collector is in an experimental state! The configuration and metrics may change in future. Please report any issues.")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -119,8 +124,15 @@ func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
 
 	c.pendingUpdate = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "pending_info"),
-		"Pending Windows Updates",
-		[]string{"category", "severity", "title"},
+		"Expose information for a single pending update item",
+		[]string{"id", "revision", "category", "severity", "title"},
+		nil,
+	)
+
+	c.pendingUpdateLastPublished = prometheus.NewDesc(
+		prometheus.BuildFQName(types.Namespace, Name, "pending_published_timestamp"),
+		"Expose last published timestamp for a single pending update item",
+		[]string{"id", "revision"},
 		nil,
 	)
 
@@ -164,6 +176,7 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 	// Otherwise, attempting to initialize and run parallel queries across
 	// goroutines will result in protected memory errors.
 	runtime.LockOSThread()
+
 	defer runtime.UnlockOSThread()
 
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED|ole.COINIT_DISABLE_OLE1DDE); err != nil {
@@ -197,9 +210,16 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 
 	defer musQueryInterface.Release()
 
+	_, err = oleutil.PutProperty(musQueryInterface, "UserLocale", 1033)
+	if err != nil {
+		initErrCh <- fmt.Errorf("failed to set ClientApplicationID: %w", err)
+
+		return
+	}
+
 	_, err = oleutil.PutProperty(musQueryInterface, "ClientApplicationID", "windows_exporter")
 	if err != nil {
-		initErrCh <- fmt.Errorf("put ClientApplicationID: %w", err)
+		initErrCh <- fmt.Errorf("failed to set ClientApplicationID: %w", err)
 
 		return
 	}
@@ -276,7 +296,7 @@ func (c *Collector) scheduleUpdateStatus(ctx context.Context, logger *slog.Logge
 }
 
 func (c *Collector) fetchUpdates(logger *slog.Logger, usd *ole.IDispatch) ([]prometheus.Metric, error) {
-	metricsBuf := make([]prometheus.Metric, 0, len(c.metricsBuf))
+	metricsBuf := make([]prometheus.Metric, 0, len(c.metricsBuf)*2+1)
 
 	timeStart := time.Now()
 
@@ -323,25 +343,40 @@ func (c *Collector) fetchUpdates(logger *slog.Logger, usd *ole.IDispatch) ([]pro
 			c.pendingUpdate,
 			prometheus.GaugeValue,
 			1,
+			update.identity,
+			update.revision,
 			update.category,
 			update.severity,
 			update.title,
 		))
+
+		if update.lastPublished != (time.Time{}) {
+			metricsBuf = append(metricsBuf, prometheus.MustNewConstMetric(
+				c.pendingUpdateLastPublished,
+				prometheus.GaugeValue,
+				float64(update.lastPublished.Unix()),
+				update.identity,
+				update.revision,
+			))
+		}
 	}
 
 	metricsBuf = append(metricsBuf, prometheus.MustNewConstMetric(
 		c.lastScrapeMetric,
 		prometheus.GaugeValue,
-		float64(time.Now().Unix()),
+		float64(time.Now().UnixMicro())/1e6,
 	))
 
 	return metricsBuf, nil
 }
 
 type windowsUpdate struct {
-	category string
-	severity string
-	title    string
+	identity      string
+	revision      string
+	category      string
+	severity      string
+	title         string
+	lastPublished time.Time
 }
 
 // getUpdateStatus retrieves the update status of the given item.
@@ -379,10 +414,48 @@ func (c *Collector) getUpdateStatus(updd *ole.IDispatch, item int) (windowsUpdat
 		return windowsUpdate{}, fmt.Errorf("get Title: %w", err)
 	}
 
+	// Get the Identity object
+	identityVariant, err := oleutil.GetProperty(updateItem, "Identity")
+	if err != nil {
+		return windowsUpdate{}, fmt.Errorf("get Identity: %w", err)
+	}
+
+	identity := identityVariant.ToIDispatch()
+	defer identity.Release()
+
+	// Read the UpdateID
+	updateIDVariant, err := oleutil.GetProperty(identity, "UpdateID")
+	if err != nil {
+		return windowsUpdate{}, fmt.Errorf("get UpdateID: %w", err)
+	}
+
+	revisionVariant, err := oleutil.GetProperty(identity, "RevisionNumber")
+	if err != nil {
+		return windowsUpdate{}, fmt.Errorf("get RevisionNumber: %w", err)
+	}
+
+	lastPublished, err := oleutil.GetProperty(updateItem, "LastDeploymentChangeTime")
+	if err != nil {
+		return windowsUpdate{}, fmt.Errorf("get LastDeploymentChangeTime: %w", err)
+	}
+
+	lastPublishedDate, err := ole.GetVariantDate(uint64(lastPublished.Val))
+	if err != nil {
+		c.logger.Debug("failed to convert LastDeploymentChangeTime",
+			slog.String("title", title.ToString()),
+			slog.Any("err", err),
+		)
+
+		lastPublishedDate = time.Time{}
+	}
+
 	return windowsUpdate{
-		category: categoryName,
-		severity: severity.ToString(),
-		title:    title.ToString(),
+		identity:      updateIDVariant.ToString(),
+		revision:      strconv.FormatInt(revisionVariant.Val, 10),
+		category:      categoryName,
+		severity:      severity.ToString(),
+		title:         title.ToString(),
+		lastPublished: lastPublishedDate,
 	}, nil
 }
 

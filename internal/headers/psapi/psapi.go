@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -49,6 +51,7 @@ var (
 // GetPerformanceInfo returns the dereferenced version of GetLPPerformanceInfo.
 func GetPerformanceInfo() (PerformanceInformation, error) {
 	var lppi PerformanceInformation
+
 	size := (uint32)(unsafe.Sizeof(lppi))
 	lppi.cb = size
 	r1, _, err := procGetPerformanceInfo.Call(uintptr(unsafe.Pointer(&lppi)), uintptr(size))

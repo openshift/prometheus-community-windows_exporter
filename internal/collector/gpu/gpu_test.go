@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -13,19 +15,19 @@
 
 //go:build windows
 
-package cs_test
+package gpu_test
 
 import (
 	"testing"
 
-	"github.com/prometheus-community/windows_exporter/internal/collector/cs"
+	"github.com/prometheus-community/windows_exporter/internal/collector/gpu"
 	"github.com/prometheus-community/windows_exporter/internal/utils/testutils"
 )
 
 func BenchmarkCollector(b *testing.B) {
-	testutils.FuncBenchmarkCollector(b, cs.Name, cs.NewWithFlags)
+	testutils.FuncBenchmarkCollector(b, gpu.Name, gpu.NewWithFlags)
 }
 
 func TestCollector(t *testing.T) {
-	testutils.TestCollector(t, cs.New, nil)
+	testutils.TestCollector(t, gpu.New, nil)
 }

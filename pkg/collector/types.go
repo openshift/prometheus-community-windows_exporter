@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -24,7 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-const DefaultCollectors = "cpu,cs,memory,logical_disk,physical_disk,net,os,service,system"
+const DefaultCollectors = "cpu,memory,logical_disk,physical_disk,net,os,service,system"
 
 type Collection struct {
 	collectors    Map

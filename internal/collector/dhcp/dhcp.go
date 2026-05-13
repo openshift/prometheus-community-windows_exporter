@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -39,7 +41,7 @@ const (
 )
 
 type Config struct {
-	CollectorsEnabled []string `yaml:"collectors_enabled"`
+	CollectorsEnabled []string `yaml:"enabled"`
 }
 
 //nolint:gochecknoglobals
@@ -53,6 +55,8 @@ var ConfigDefaults = Config{
 // A Collector is a Prometheus Collector perflib DHCP metrics.
 type Collector struct {
 	config Config
+
+	logger *slog.Logger
 
 	perfDataCollector *pdh.Collector
 	perfDataObject    []perfDataCounterValues
@@ -145,7 +149,9 @@ func (c *Collector) Close() error {
 	return nil
 }
 
-func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
+func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
+	c.logger = logger.With(slog.String("collector", Name))
+
 	var err error
 
 	if slices.Contains(c.config.CollectorsEnabled, subCollectorScopeMetrics) {

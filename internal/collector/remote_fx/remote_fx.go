@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -278,60 +280,70 @@ func (c *Collector) collectRemoteFXNetworkCount(ch chan<- prometheus.Metric) err
 			utils.MilliSecToSec(data.BaseTCPRTT),
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.baseUDPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.BaseUDPRTT),
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.currentTCPBandwidth,
 			prometheus.GaugeValue,
 			(data.CurrentTCPBandwidth*1000)/8,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.currentTCPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.CurrentTCPRTT),
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.currentUDPBandwidth,
 			prometheus.GaugeValue,
 			(data.CurrentUDPBandwidth*1000)/8,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.currentUDPRTT,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.CurrentUDPRTT),
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalReceivedBytes,
 			prometheus.CounterValue,
 			data.TotalReceivedBytes,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalSentBytes,
 			prometheus.CounterValue,
 			data.TotalSentBytes,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.udpPacketsReceivedPerSec,
 			prometheus.CounterValue,
 			data.UDPPacketsReceivedPersec,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.udpPacketsSentPerSec,
 			prometheus.CounterValue,
 			data.UDPPacketsSentPersec,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.fecRate,
 			prometheus.GaugeValue,
@@ -376,12 +388,14 @@ func (c *Collector) collectRemoteFXGraphicsCounters(ch chan<- prometheus.Metric)
 			utils.MilliSecToSec(data.AverageEncodingTime),
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.frameQuality,
 			prometheus.GaugeValue,
 			data.FrameQuality,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.framesSkippedPerSecondInsufficientResources,
 			prometheus.CounterValue,
@@ -389,6 +403,7 @@ func (c *Collector) collectRemoteFXGraphicsCounters(ch chan<- prometheus.Metric)
 			sessionName,
 			"client",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.framesSkippedPerSecondInsufficientResources,
 			prometheus.CounterValue,
@@ -396,6 +411,7 @@ func (c *Collector) collectRemoteFXGraphicsCounters(ch chan<- prometheus.Metric)
 			sessionName,
 			"network",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.framesSkippedPerSecondInsufficientResources,
 			prometheus.CounterValue,
@@ -403,24 +419,28 @@ func (c *Collector) collectRemoteFXGraphicsCounters(ch chan<- prometheus.Metric)
 			sessionName,
 			"server",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.graphicsCompressionRatio,
 			prometheus.GaugeValue,
 			data.GraphicsCompressionratio,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.inputFramesPerSecond,
 			prometheus.CounterValue,
 			data.InputFramesPerSecond,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.outputFramesPerSecond,
 			prometheus.CounterValue,
 			data.OutputFramesPerSecond,
 			sessionName,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.sourceFramesPerSecond,
 			prometheus.CounterValue,

@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -13,20 +15,23 @@
 
 //go:build windows
 
-package logon_test
+package ntdll
 
 import (
-	"testing"
-
-	"github.com/prometheus-community/windows_exporter/internal/collector/logon"
-	"github.com/prometheus-community/windows_exporter/internal/utils/testutils"
+	"golang.org/x/sys/windows"
 )
 
-func BenchmarkCollector(b *testing.B) {
-	// No context name required as Collector source is WMI
-	testutils.FuncBenchmarkCollector(b, logon.Name, logon.NewWithFlags)
-}
+//nolint:gochecknoglobals
+var (
+	modNtdll                  = windows.NewLazySystemDLL("ntdll.dll")
+	procRtlNtStatusToDosError = modNtdll.NewProc("RtlNtStatusToDosError")
+)
 
-func TestCollector(t *testing.T) {
-	testutils.TestCollector(t, logon.New, nil)
+func RtlNtStatusToDosError(status uintptr) error {
+	ret, _, _ := procRtlNtStatusToDosError.Call(status)
+	if ret == 0 {
+		return nil
+	}
+
+	return windows.Errno(ret)
 }

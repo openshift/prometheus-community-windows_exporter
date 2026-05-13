@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -33,7 +35,6 @@ import (
 	"github.com/prometheus-community/windows_exporter/internal/collector/container"
 	"github.com/prometheus-community/windows_exporter/internal/collector/cpu"
 	"github.com/prometheus-community/windows_exporter/internal/collector/cpu_info"
-	"github.com/prometheus-community/windows_exporter/internal/collector/cs"
 	"github.com/prometheus-community/windows_exporter/internal/collector/dfsr"
 	"github.com/prometheus-community/windows_exporter/internal/collector/dhcp"
 	"github.com/prometheus-community/windows_exporter/internal/collector/diskdrive"
@@ -41,11 +42,11 @@ import (
 	"github.com/prometheus-community/windows_exporter/internal/collector/exchange"
 	"github.com/prometheus-community/windows_exporter/internal/collector/filetime"
 	"github.com/prometheus-community/windows_exporter/internal/collector/fsrmquota"
+	"github.com/prometheus-community/windows_exporter/internal/collector/gpu"
 	"github.com/prometheus-community/windows_exporter/internal/collector/hyperv"
 	"github.com/prometheus-community/windows_exporter/internal/collector/iis"
 	"github.com/prometheus-community/windows_exporter/internal/collector/license"
 	"github.com/prometheus-community/windows_exporter/internal/collector/logical_disk"
-	"github.com/prometheus-community/windows_exporter/internal/collector/logon"
 	"github.com/prometheus-community/windows_exporter/internal/collector/memory"
 	"github.com/prometheus-community/windows_exporter/internal/collector/mscluster"
 	"github.com/prometheus-community/windows_exporter/internal/collector/msmq"
@@ -104,7 +105,6 @@ func NewWithConfig(config Config) *Collection {
 	collectors[container.Name] = container.New(&config.Container)
 	collectors[cpu.Name] = cpu.New(&config.CPU)
 	collectors[cpu_info.Name] = cpu_info.New(&config.CPUInfo)
-	collectors[cs.Name] = cs.New(&config.Cs)
 	collectors[dfsr.Name] = dfsr.New(&config.DFSR)
 	collectors[dhcp.Name] = dhcp.New(&config.Dhcp)
 	collectors[diskdrive.Name] = diskdrive.New(&config.DiskDrive)
@@ -112,11 +112,11 @@ func NewWithConfig(config Config) *Collection {
 	collectors[exchange.Name] = exchange.New(&config.Exchange)
 	collectors[filetime.Name] = filetime.New(&config.Filetime)
 	collectors[fsrmquota.Name] = fsrmquota.New(&config.Fsrmquota)
+	collectors[gpu.Name] = gpu.New(&config.GPU)
 	collectors[hyperv.Name] = hyperv.New(&config.HyperV)
 	collectors[iis.Name] = iis.New(&config.IIS)
 	collectors[license.Name] = license.New(&config.License)
 	collectors[logical_disk.Name] = logical_disk.New(&config.LogicalDisk)
-	collectors[logon.Name] = logon.New(&config.Logon)
 	collectors[memory.Name] = memory.New(&config.Memory)
 	collectors[mscluster.Name] = mscluster.New(&config.MSCluster)
 	collectors[msmq.Name] = msmq.New(&config.Msmq)
@@ -198,6 +198,15 @@ func (c *Collection) Enable(enabledCollectors []string) error {
 	return nil
 }
 
+// Disable removes all collectors that are listed in disabledCollectors.
+func (c *Collection) Disable(disabledCollectors []string) {
+	for name := range c.collectors {
+		if slices.Contains(disabledCollectors, name) {
+			delete(c.collectors, name)
+		}
+	}
+}
+
 // Build To be called by the exporter for collector initialization.
 // Instead, fail fast, it will try to build all collectors and return all errors.
 // errors are joined with errors.Join.
@@ -275,7 +284,7 @@ func (c *Collection) Close() error {
 
 // initMI To be called by the exporter for collector initialization.
 func (c *Collection) initMI() error {
-	app, err := mi.Application_Initialize()
+	app, err := mi.ApplicationInitialize()
 	if err != nil {
 		return fmt.Errorf("error from initialize MI application: %w", err)
 	}
@@ -287,6 +296,10 @@ func (c *Collection) initMI() error {
 
 	if err = destinationOptions.SetLocale(mi.LocaleEnglish); err != nil {
 		return fmt.Errorf("error from set locale: %w", err)
+	}
+
+	if err = destinationOptions.SetTimeout(gotime.Second); err != nil {
+		return fmt.Errorf("error from set timeout: %w", err)
 	}
 
 	c.miSession, err = app.NewSession(destinationOptions)

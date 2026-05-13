@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -10,6 +12,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build windows
 
 package collector
 
@@ -23,10 +27,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus-community/windows_exporter/internal/mi"
 	"github.com/prometheus-community/windows_exporter/internal/pdh"
 	"github.com/prometheus-community/windows_exporter/internal/types"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sys/windows"
 )
 
 type collectorStatus struct {
@@ -196,7 +200,6 @@ func (c *Collection) collectCollector(ch chan<- prometheus.Metric, logger *slog.
 
 		go func() {
 			// Drain channel in case of premature return to not leak a goroutine.
-			//nolint:revive
 			for range bufCh {
 			}
 		}()
@@ -204,20 +207,34 @@ func (c *Collection) collectCollector(ch chan<- prometheus.Metric, logger *slog.
 		return pending
 	}
 
-	if err != nil && !errors.Is(err, pdh.ErrNoData) && !errors.Is(err, types.ErrNoData) {
-		if errors.Is(err, pdh.ErrPerformanceCounterNotInitialized) || errors.Is(err, mi.MI_RESULT_INVALID_NAMESPACE) {
-			err = fmt.Errorf("%w. Check application logs from initialization pharse for more information", err)
+	slogAttrs := make([]slog.Attr, 0)
+
+	result := "succeeded"
+
+	if err != nil {
+		if !errors.Is(err, pdh.ErrNoData) && !errors.Is(err, types.ErrNoData) && !errors.Is(err, windows.EPT_S_NOT_REGISTERED) {
+			if errors.Is(err, pdh.ErrPerformanceCounterNotInitialized) {
+				err = fmt.Errorf("%w. Check application logs from initialization pharse for more information", err)
+			}
+
+			logger.LogAttrs(ctx, slog.LevelWarn,
+				fmt.Sprintf("collector %s failed after %s, resulting in %d metrics", name, duration, numMetrics),
+				slog.Any("err", err),
+			)
+
+			return failed
 		}
 
-		logger.LogAttrs(ctx, slog.LevelWarn,
-			fmt.Sprintf("collector %s failed after %s, resulting in %d metrics", name, duration, numMetrics),
-			slog.Any("err", err),
-		)
+		slogAttrs = append(slogAttrs, slog.Any("err", err))
 
-		return failed
+		result = "succeeded with warnings"
 	}
 
-	logger.LogAttrs(ctx, slog.LevelDebug, fmt.Sprintf("collector %s succeeded after %s, resulting in %d metrics", name, duration, numMetrics))
+	logger.LogAttrs(ctx, slog.LevelDebug, fmt.Sprintf(
+		"collector %s %s after %s, resulting in %d metrics", name, result, duration, numMetrics,
+	),
+		slogAttrs...,
+	)
 
 	return success
 }
