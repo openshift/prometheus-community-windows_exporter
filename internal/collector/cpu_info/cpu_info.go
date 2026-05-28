@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -192,36 +194,42 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			strconv.Itoa(int(processor.Family)),
 			strings.TrimRight(processor.Name, " "),
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cpuCoreCount,
 			prometheus.GaugeValue,
 			float64(processor.NumberOfCores),
 			strings.TrimRight(processor.DeviceID, " "),
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cpuEnabledCoreCount,
 			prometheus.GaugeValue,
 			float64(processor.NumberOfEnabledCore),
 			strings.TrimRight(processor.DeviceID, " "),
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cpuLogicalProcessorsCount,
 			prometheus.GaugeValue,
 			float64(processor.NumberOfLogicalProcessors),
 			strings.TrimRight(processor.DeviceID, " "),
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cpuThreadCount,
 			prometheus.GaugeValue,
 			float64(processor.ThreadCount),
 			strings.TrimRight(processor.DeviceID, " "),
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cpuL2CacheSize,
 			prometheus.GaugeValue,
 			float64(processor.L2CacheSize),
 			strings.TrimRight(processor.DeviceID, " "),
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cpuL3CacheSize,
 			prometheus.GaugeValue,

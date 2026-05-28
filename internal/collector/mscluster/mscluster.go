@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -39,7 +41,7 @@ const (
 )
 
 type Config struct {
-	CollectorsEnabled []string `yaml:"collectors_enabled"`
+	CollectorsEnabled []string `yaml:"enabled"`
 }
 
 //nolint:gochecknoglobals
@@ -55,14 +57,14 @@ var ConfigDefaults = Config{
 
 // A Collector is a Prometheus Collector for WMI MSCluster_Cluster metrics.
 type Collector struct {
-	config    Config
-	miSession *mi.Session
-
 	collectorCluster
 	collectorNetwork
 	collectorNode
 	collectorResource
 	collectorResourceGroup
+
+	config    Config
+	miSession *mi.Session
 }
 
 func New(config *Config) *Collector {

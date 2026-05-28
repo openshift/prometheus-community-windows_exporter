@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -23,7 +25,7 @@ import (
 )
 
 func Benchmark_MI_Query_Unmarshal(b *testing.B) {
-	application, err := mi.Application_Initialize()
+	application, err := mi.ApplicationInitialize()
 	require.NoError(b, err)
 	require.NotEmpty(b, application)
 
@@ -38,7 +40,7 @@ func Benchmark_MI_Query_Unmarshal(b *testing.B) {
 	query, err := mi.NewQuery("SELECT Name FROM Win32_Process WHERE Handle = 0 OR Handle = 4")
 	require.NoError(b, err)
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		err := session.QueryUnmarshal(&processes, mi.OperationFlagsStandardRTTI, nil, mi.NamespaceRootCIMv2, mi.QueryDialectWQL, query)
 		require.NoError(b, err)
 		require.Equal(b, []win32Process{{Name: "System Idle Process"}, {Name: "System"}}, processes)

@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,7 +18,6 @@
 package textfile_test
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,7 +28,6 @@ import (
 	"github.com/prometheus-community/windows_exporter/pkg/collector"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,12 +45,13 @@ func TestMultipleDirectories(t *testing.T) {
 	})
 
 	collectors := collector.New(map[string]collector.Collector{textfile.Name: textFileCollector})
-	require.NoError(t, collectors.Build(context.Background(), logger))
+	require.NoError(t, collectors.Build(t.Context(), logger))
 
 	metrics := make(chan prometheus.Metric)
 	got := ""
 
 	errCh := make(chan error, 1)
+
 	go func() {
 		errCh <- textFileCollector.Collect(metrics)
 
@@ -63,13 +64,14 @@ func TestMultipleDirectories(t *testing.T) {
 		err := val.Write(&metric)
 		require.NoError(t, err)
 
+		//nolint:modernize
 		got += metric.String()
 	}
 
 	require.NoError(t, <-errCh)
 
 	for _, f := range []string{"dir1", "dir2", "dir3", "dir3sub"} {
-		assert.Contains(t, got, f)
+		require.Contains(t, got, f)
 	}
 }
 
@@ -82,12 +84,13 @@ func TestDuplicateFileName(t *testing.T) {
 	})
 
 	collectors := collector.New(map[string]collector.Collector{textfile.Name: textFileCollector})
-	require.NoError(t, collectors.Build(context.Background(), logger))
+	require.NoError(t, collectors.Build(t.Context(), logger))
 
 	metrics := make(chan prometheus.Metric)
 	got := ""
 
 	errCh := make(chan error, 1)
+
 	go func() {
 		errCh <- textFileCollector.Collect(metrics)
 
@@ -105,6 +108,6 @@ func TestDuplicateFileName(t *testing.T) {
 
 	require.ErrorContains(t, <-errCh, "duplicate filename detected")
 
-	assert.Contains(t, got, "file")
-	assert.NotContains(t, got, "sub_file")
+	require.Contains(t, got, "file")
+	require.NotContains(t, got, "sub_file")
 }

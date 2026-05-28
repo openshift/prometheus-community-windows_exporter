@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -74,10 +76,6 @@ func run(ctx context.Context, args []string) int {
 			"config.file",
 			"YAML configuration file to use. Values set in this file will be overridden by CLI flags.",
 		).String()
-		_ = app.Flag(
-			"config.file.insecure-skip-verify",
-			"Skip TLS verification in loading YAML configuration.",
-		).Default("false").Bool()
 		webConfig   = webflag.AddFlags(app, ":9182")
 		metricsPath = app.Flag(
 			"telemetry.path",
@@ -91,6 +89,10 @@ func run(ctx context.Context, args []string) int {
 			"collectors.enabled",
 			"Comma-separated list of collectors to use. Use '[defaults]' as a placeholder for all the collectors enabled by default.").
 			Default(collector.DefaultCollectors).String()
+		disabledCollectors = app.Flag(
+			"collectors.disabled",
+			"Comma-separated list of collectors to exclude. Can be used to disable collector from the defaults.").
+			Default("").String()
 		timeoutMargin = app.Flag(
 			"scrape.timeout-margin",
 			"Seconds to subtract from the timeout allowed by the client. Tune to allow for overhead or high loads.",
@@ -125,7 +127,6 @@ func run(ctx context.Context, args []string) int {
 	// Initialize collectors before loading and parsing CLI arguments
 	collectors := collector.NewWithFlags(app)
 
-	//nolint:contextcheck
 	if err := config.Parse(app, args); err != nil {
 		//nolint:sloglint // we do not have an logger yet
 		slog.LogAttrs(ctx, slog.LevelError, "Failed to load configuration",
@@ -146,11 +147,11 @@ func run(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	if configFile != nil && *configFile != "" {
-		logger.InfoContext(ctx, "using configuration file: "+*configFile)
-	}
-
 	logger.LogAttrs(ctx, slog.LevelDebug, "logging has Started")
+
+	if configFile != nil && *configFile != "" {
+		logger.LogAttrs(ctx, slog.LevelInfo, "using configuration file: "+*configFile)
+	}
 
 	if err = setPriorityWindows(ctx, logger, os.Getpid(), *processPriority); err != nil {
 		logger.LogAttrs(ctx, slog.LevelError, "failed to set process priority",
@@ -169,6 +170,10 @@ func run(ctx context.Context, args []string) int {
 		return 1
 	}
 
+	if *disabledCollectors != "" {
+		collectors.Disable(slices.Compact(strings.Split(*disabledCollectors, ",")))
+	}
+
 	// Initialize collectors before loading
 	if err = collectors.Build(ctx, logger); err != nil {
 		for _, err := range utils.SplitError(err) {
@@ -180,7 +185,7 @@ func run(ctx context.Context, args []string) int {
 		}
 	}
 
-	logCurrentUser(logger)
+	logCurrentUser(ctx, logger)
 
 	logger.InfoContext(ctx, "Enabled collectors: "+strings.Join(enabledCollectorList, ", "))
 
@@ -245,27 +250,34 @@ func run(ctx context.Context, args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_ = server.Shutdown(ctx) //nolint:contextcheck // create a new context for server shutdown
-
-	logger.LogAttrs(ctx, slog.LevelInfo, "windows_exporter has shut down") //nolint:contextcheck
+	//nolint:contextcheck // create a new context for server shutdown
+	if err = server.Shutdown(ctx); err != nil {
+		//nolint:contextcheck
+		logger.LogAttrs(ctx, slog.LevelError, "Failed to shutdown windows_exporter",
+			slog.Any("err", err),
+		)
+	} else {
+		//nolint:contextcheck
+		logger.LogAttrs(ctx, slog.LevelInfo, "windows_exporter has shut down")
+	}
 
 	return 0
 }
 
-func logCurrentUser(logger *slog.Logger) {
+func logCurrentUser(ctx context.Context, logger *slog.Logger) {
 	u, err := user.Current()
 	if err != nil {
-		logger.Warn("Unable to determine which user is running this exporter. More info: https://github.com/golang/go/issues/37348",
+		logger.LogAttrs(ctx, slog.LevelWarn, "Unable to determine which user is running this exporter. More info: https://github.com/golang/go/issues/37348",
 			slog.Any("err", err),
 		)
 
 		return
 	}
 
-	logger.Info("Running as " + u.Username)
+	logger.LogAttrs(ctx, slog.LevelInfo, "Running as "+u.Username)
 
 	if strings.Contains(u.Username, "ContainerAdministrator") || strings.Contains(u.Username, "ContainerUser") {
-		logger.Warn("Running as a preconfigured Windows Container user. This may mean you do not have Windows HostProcess containers configured correctly and some functionality will not work as expected.")
+		logger.LogAttrs(ctx, slog.LevelWarn, "Running as a preconfigured Windows Container user. This may mean you do not have Windows HostProcess containers configured correctly and some functionality will not work as expected.")
 	}
 }
 

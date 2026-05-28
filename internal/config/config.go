@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,18 +18,50 @@
 package config
 
 import (
-	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"net/http"
 	"os"
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
-	"gopkg.in/yaml.v3"
+	"github.com/prometheus-community/windows_exporter/pkg/collector"
+	"go.yaml.in/yaml/v3"
 )
+
+// configFile represents the structure of the windows_exporter configuration file,
+// including configuration from the collector and web packages.
+type configFile struct {
+	Debug struct {
+		Enabled bool `yaml:"enabled"`
+	} `yaml:"debug"`
+	Collectors struct {
+		Enabled string `yaml:"enabled"`
+	} `yaml:"collectors"`
+	Collector collector.Config `yaml:"collector"`
+	Log       struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+		File   string `yaml:"file"`
+	} `yaml:"log"`
+	Process struct {
+		Priority    string `yaml:"priority"`
+		MemoryLimit string `yaml:"memory-limit"`
+	} `yaml:"process"`
+	Scrape struct {
+		TimeoutMargin string `yaml:"timeout-margin"`
+	} `yaml:"scrape"`
+	Telemetry struct {
+		Path string `yaml:"path"`
+	} `yaml:"telemetry"`
+	Web struct {
+		DisableExporterMetrics bool `yaml:"disable-exporter-metrics"`
+		ListenAddresses        any  `yaml:"listen-address"`
+		Config                 struct {
+			File string `yaml:"file"`
+		} `yaml:"config"`
+	} `yaml:"web"`
+}
 
 type getFlagger interface {
 	GetFlag(name string) *kingpin.FlagClause
@@ -62,12 +96,12 @@ func Parse(app *kingpin.Application, args []string) error {
 // ParseConfigFile manually parses the configuration file from the command line arguments.
 func ParseConfigFile(args []string) string {
 	for i, cliFlag := range args {
-		if strings.HasPrefix(cliFlag, "--config.file=") {
-			return strings.TrimPrefix(cliFlag, "--config.file=")
+		if configFile, ok := strings.CutPrefix(cliFlag, "--config.file="); ok {
+			return configFile
 		}
 
-		if strings.HasPrefix(cliFlag, "-config.file=") {
-			return strings.TrimPrefix(cliFlag, "-config.file=")
+		if configFile, ok := strings.CutPrefix(cliFlag, "-config.file="); ok {
+			return configFile
 		}
 
 		if strings.HasSuffix(cliFlag, "-config.file") {
@@ -83,34 +117,42 @@ func ParseConfigFile(args []string) string {
 }
 
 // NewConfigFileResolver returns a Resolver structure.
-func NewConfigFileResolver(file string) (*Resolver, error) {
+func NewConfigFileResolver(filePath string) (*Resolver, error) {
 	flags := map[string]string{}
 
-	var (
-		err       error
-		fileBytes []byte
-	)
-
-	if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
-		//nolint:sloglint // we do not have an logger yet
-		slog.Warn("Loading configuration file from URL is deprecated and will be removed in 0.31.0. Use a local file instead.")
-
-		fileBytes, err = readFromURL(file)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		fileBytes, err = readFromFile(file)
-		if err != nil {
-			return nil, err
-		}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open configuration file: %w", err)
 	}
 
-	var rawValues map[string]interface{}
+	defer func() {
+		_ = file.Close()
+	}()
 
-	err = yaml.Unmarshal(fileBytes, &rawValues)
+	var configFileStructure configFile
+
+	decoder := yaml.NewDecoder(file)
+	decoder.KnownFields(true)
+
+	if err = decoder.Decode(&configFileStructure); err != nil {
+		// Handle EOF error gracefully, indicating no configuration was found.
+		if errors.Is(err, io.EOF) {
+			return &Resolver{flags: flags}, nil
+		}
+
+		return nil, fmt.Errorf("configuration file validation error: %w", err)
+	}
+
+	_, err = file.Seek(0, io.SeekStart)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal configuration file: %w", err)
+		return nil, fmt.Errorf("failed to rewind file: %w", err)
+	}
+
+	var rawValues map[string]any
+
+	decoder = yaml.NewDecoder(file)
+	if err = decoder.Decode(&rawValues); err != nil {
+		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
 	}
 
 	// Flatten nested YAML values
@@ -124,50 +166,9 @@ func NewConfigFileResolver(file string) (*Resolver, error) {
 	return &Resolver{flags: flags}, nil
 }
 
-func readFromFile(file string) ([]byte, error) {
-	if _, err := os.Stat(file); err != nil {
-		return nil, fmt.Errorf("failed to read configuration file: %w", err)
-	}
-
-	fileBytes, err := os.ReadFile(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read configuration file: %w", err)
-	}
-
-	return fileBytes, nil
-}
-
-func readFromURL(file string) ([]byte, error) {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-	}
-
-	client := &http.Client{Transport: tr}
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, file, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read configuration file from URL: %w", err)
-	}
-
-	defer resp.Body.Close()
-
-	fileBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return fileBytes, nil
-}
-
 func (c *Resolver) setDefault(v getFlagger) {
 	for name, value := range c.flags {
-		f := v.GetFlag(name)
-		if f != nil {
+		if f := v.GetFlag(name); f != nil {
 			f.Default(value)
 		}
 	}

@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -44,8 +46,8 @@ var printerStatusMap = map[uint16]string{
 }
 
 type Config struct {
-	PrinterInclude *regexp.Regexp `yaml:"printer_include"`
-	PrinterExclude *regexp.Regexp `yaml:"printer_exclude"`
+	PrinterInclude *regexp.Regexp `yaml:"include"`
+	PrinterExclude *regexp.Regexp `yaml:"exclude"`
 }
 
 //nolint:gochecknoglobals

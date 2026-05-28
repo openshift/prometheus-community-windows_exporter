@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -308,26 +310,31 @@ func (c *Collector) collectHypervisorRootPartition(ch chan<- prometheus.Metric) 
 		prometheus.GaugeValue,
 		c.perfDataObjectHypervisorRootPartition[0].HypervisorRootPartition2MDevicePages,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.hypervisorRootPartition2MGPAPages,
 		prometheus.GaugeValue,
 		c.perfDataObjectHypervisorRootPartition[0].HypervisorRootPartition2MGPAPages,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.hypervisorRootPartition4KDevicePages,
 		prometheus.GaugeValue,
 		c.perfDataObjectHypervisorRootPartition[0].HypervisorRootPartition4KDevicePages,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.hypervisorRootPartition4KGPAPages,
 		prometheus.GaugeValue,
 		c.perfDataObjectHypervisorRootPartition[0].HypervisorRootPartition4KGPAPages,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.hypervisorRootPartitionVirtualTLBFlushEntries,
 		prometheus.CounterValue,
 		c.perfDataObjectHypervisorRootPartition[0].HypervisorRootPartitionVirtualTLBFlushEntries,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.hypervisorRootPartitionVirtualTLBPages,
 		prometheus.GaugeValue,

@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -72,7 +74,7 @@ func TestRun(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			if tc.config != "" {
@@ -169,8 +171,10 @@ func waitUntilListening(tb testing.TB, network, address string) error {
 		err  error
 	)
 
-	for range 10 {
-		conn, err = net.DialTimeout(network, address, 100*time.Millisecond)
+	dialer := &net.Dialer{Timeout: 100 * time.Millisecond}
+
+	for range 20 {
+		conn, err = dialer.DialContext(tb.Context(), network, address)
 		if err == nil {
 			_ = conn.Close()
 
@@ -182,6 +186,13 @@ func waitUntilListening(tb testing.TB, network, address string) error {
 
 			continue
 		}
+
+		break
+	}
+
+	var winErr windows.Errno
+	if errors.As(err, &winErr) {
+		return fmt.Errorf("listener not listening: %w (#%d)", winErr, uint32(winErr))
 	}
 
 	return fmt.Errorf("listener not listening: %w", err)

@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -34,8 +36,8 @@ import (
 const Name = "scheduled_task"
 
 type Config struct {
-	TaskExclude *regexp.Regexp `yaml:"task_exclude"`
-	TaskInclude *regexp.Regexp `yaml:"task_include"`
+	TaskExclude *regexp.Regexp `yaml:"exclude"`
+	TaskInclude *regexp.Regexp `yaml:"include"`
 }
 
 //nolint:gochecknoglobals
@@ -246,6 +248,7 @@ func getScheduledTasks() (ScheduledTasks, error) {
 	// Otherwise, attempting to initialize and run parallel queries across
 	// goroutines will result in protected memory errors.
 	runtime.LockOSThread()
+
 	defer runtime.UnlockOSThread()
 
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED|ole.COINIT_DISABLE_OLE1DDE); err != nil {
@@ -254,6 +257,7 @@ func getScheduledTasks() (ScheduledTasks, error) {
 			return nil, err
 		}
 	}
+
 	defer ole.CoUninitialize()
 
 	schedClassID, err := ole.ClassIDFrom(SCHEDULED_TASK_PROGRAM_ID)

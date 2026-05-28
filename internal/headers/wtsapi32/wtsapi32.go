@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -145,7 +147,6 @@ func WTSOpenServer(server string) (windows.Handle, error) {
 
 func WTSCloseServer(server windows.Handle) error {
 	r1, _, err := procWTSCloseServer.Call(uintptr(server))
-
 	if r1 != 1 && !errors.Is(err, windows.ERROR_SUCCESS) {
 		return fmt.Errorf("failed to close server: %w", err)
 	}
@@ -194,6 +195,7 @@ func WTSEnumerateSessionsEx(server windows.Handle, logger *slog.Logger) ([]WTSSe
 	}
 
 	var sizeTest wtsSessionInfo1
+
 	sessionSize := unsafe.Sizeof(sizeTest)
 
 	sessions := make([]WTSSession, 0, count)

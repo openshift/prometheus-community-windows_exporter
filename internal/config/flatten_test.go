@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -19,7 +21,7 @@ import (
 	"reflect"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Unmarshal good configuration file and confirm data is flattened correctly.
@@ -34,7 +36,7 @@ func TestConfigFlattening(t *testing.T) {
     log:
       level: debug`)
 
-	var data map[string]interface{}
+	var data map[string]any
 
 	err := yaml.Unmarshal(goodYamlConfig, &data)
 	if err != nil {

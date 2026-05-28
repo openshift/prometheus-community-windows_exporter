@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -18,6 +20,7 @@ package collector
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,6 +28,12 @@ import (
 
 // Interface guard.
 var _ prometheus.Collector = (*Handler)(nil)
+
+// We are expose metrics directly from the memory region of the Win32 API.
+// We should not allow more than one request at a time.
+//
+//nolint:gochecknoglobals
+var concurrencyMu sync.Mutex
 
 // Handler implements [prometheus.Collector] for a set of Windows Collection.
 type Handler struct {
@@ -58,5 +67,7 @@ func (p *Handler) Describe(_ chan<- *prometheus.Desc) {}
 // Collect sends the collected metrics from each of the Collection to
 // prometheus.
 func (p *Handler) Collect(ch chan<- prometheus.Metric) {
+	concurrencyMu.Lock()
 	p.collection.collectAll(ch, p.logger, p.maxScrapeDuration)
+	concurrencyMu.Unlock()
 }

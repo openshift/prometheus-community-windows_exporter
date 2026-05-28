@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -50,10 +52,8 @@ type Collector struct {
 	processes                *prometheus.Desc
 	processesLimit           *prometheus.Desc
 	systemCallsTotal         *prometheus.Desc
-	// Deprecated: Use windows_system_boot_time_timestamp instead
-	bootTimeSeconds *prometheus.Desc
-	bootTime        *prometheus.Desc
-	threads         *prometheus.Desc
+	bootTime                 *prometheus.Desc
+	threads                  *prometheus.Desc
 }
 
 func New(config *Config) *Collector {
@@ -86,12 +86,6 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 	c.bootTime = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "boot_time_timestamp"),
 		"Unix timestamp of system boot time",
-		nil,
-		nil,
-	)
-	c.bootTimeSeconds = prometheus.NewDesc(
-		prometheus.BuildFQName(types.Namespace, Name, "boot_time_timestamp_seconds"),
-		"Deprecated: Use windows_system_boot_time_timestamp instead",
 		nil,
 		nil,
 	)
@@ -139,7 +133,7 @@ func (c *Collector) Build(_ *slog.Logger, _ *mi.Session) error {
 		nil,
 	)
 
-	c.bootTimeTimestamp = float64(time.Now().Unix() - int64(kernel32.GetTickCount64()/1000))
+	c.bootTimeTimestamp = float64(uint64(time.Now().UnixMilli())-kernel32.GetTickCount64()) / 1000
 
 	var err error
 
@@ -166,36 +160,35 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 		prometheus.CounterValue,
 		c.perfDataObject[0].ContextSwitchesPerSec,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.exceptionDispatchesTotal,
 		prometheus.CounterValue,
 		c.perfDataObject[0].ExceptionDispatchesPerSec,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.processorQueueLength,
 		prometheus.GaugeValue,
 		c.perfDataObject[0].ProcessorQueueLength,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.processes,
 		prometheus.GaugeValue,
 		c.perfDataObject[0].Processes,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.systemCallsTotal,
 		prometheus.CounterValue,
 		c.perfDataObject[0].SystemCallsPerSec,
 	)
+
 	ch <- prometheus.MustNewConstMetric(
 		c.threads,
 		prometheus.GaugeValue,
 		c.perfDataObject[0].Threads,
-	)
-
-	ch <- prometheus.MustNewConstMetric(
-		c.bootTimeSeconds,
-		prometheus.GaugeValue,
-		c.bootTimeTimestamp,
 	)
 
 	ch <- prometheus.MustNewConstMetric(

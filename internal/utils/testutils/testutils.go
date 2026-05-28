@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,7 +18,6 @@
 package testutils
 
 import (
-	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -48,7 +49,7 @@ func FuncBenchmarkCollector[C collector.Collector](b *testing.B, name string, co
 	}
 
 	collectors := collector.New(map[string]collector.Collector{name: c})
-	require.NoError(b, collectors.Build(context.Background(), logger))
+	require.NoError(b, collectors.Build(b.Context(), logger))
 
 	metrics := make(chan prometheus.Metric)
 
@@ -58,12 +59,12 @@ func FuncBenchmarkCollector[C collector.Collector](b *testing.B, name string, co
 		}
 	}()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		require.NoError(b, c.Collect(metrics))
 	}
 }
 
-func TestCollector[C collector.Collector, V interface{}](t *testing.T, fn func(*V) C, conf *V) {
+func TestCollector[C collector.Collector, V any](t *testing.T, fn func(*V) C, conf *V) {
 	t.Helper()
 
 	var (
@@ -75,7 +76,7 @@ func TestCollector[C collector.Collector, V interface{}](t *testing.T, fn func(*
 	c := fn(conf)
 	ch := make(chan prometheus.Metric, 10000)
 
-	miApp, err := mi.Application_Initialize()
+	miApp, err := mi.ApplicationInitialize()
 	require.NoError(t, err)
 
 	miSession, err := miApp.NewSession(nil)
@@ -88,15 +89,11 @@ func TestCollector[C collector.Collector, V interface{}](t *testing.T, fn func(*
 	})
 
 	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		for metric := range ch {
 			metrics = append(metrics, metric)
 		}
-	}()
+	})
 
 	err = c.Build(logger, miSession)
 

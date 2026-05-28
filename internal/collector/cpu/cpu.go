@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -232,12 +234,14 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			coreData.C1TimeSeconds,
 			core, "c1",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cStateSecondsTotal,
 			prometheus.CounterValue,
 			coreData.C2TimeSeconds,
 			core, "c2",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.cStateSecondsTotal,
 			prometheus.CounterValue,
@@ -251,24 +255,28 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			coreData.IdleTimeSeconds,
 			core, "idle",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.timeTotal,
 			prometheus.CounterValue,
 			coreData.InterruptTimeSeconds,
 			core, "interrupt",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.timeTotal,
 			prometheus.CounterValue,
 			coreData.DpcTimeSeconds,
 			core, "dpc",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.timeTotal,
 			prometheus.CounterValue,
 			coreData.PrivilegedTimeSeconds,
 			core, "privileged",
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.timeTotal,
 			prometheus.CounterValue,
@@ -282,18 +290,21 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			coreData.InterruptsTotal,
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.dpcsTotal,
 			prometheus.CounterValue,
 			coreData.DpcQueuedPerSecond,
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.clockInterruptsTotal,
 			prometheus.CounterValue,
 			coreData.ClockInterruptsTotal,
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.idleBreakEventsTotal,
 			prometheus.CounterValue,
@@ -314,30 +325,35 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			coreData.ProcessorFrequencyMHz,
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.processorPerformance,
 			prometheus.CounterValue,
 			coreData.ProcessorPerformance,
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.processorMPerf,
 			prometheus.CounterValue,
 			counterProcessorMPerfValues.Value(),
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.processorRTC,
 			prometheus.CounterValue,
 			counterProcessorRTCValues.Value(),
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.processorUtility,
 			prometheus.CounterValue,
 			coreData.ProcessorUtilityRate,
 			core,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.processorPrivilegedUtility,
 			prometheus.CounterValue,

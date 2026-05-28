@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -23,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -34,12 +37,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 )
 
 const Name = "textfile"
 
 type Config struct {
-	TextFileDirectories []string `yaml:"text_file_directories"`
+	TextFileDirectories []string `yaml:"directories"`
 }
 
 //nolint:gochecknoglobals
@@ -180,17 +184,7 @@ func (c *Collector) convertMetricFamily(logger *slog.Logger, metricFamily *dto.M
 		}
 
 		for k := range allLabelNames {
-			present := false
-
-			for _, name := range names {
-				if k == name {
-					present = true
-
-					break
-				}
-			}
-
-			if !present {
+			if !slices.Contains(names, k) {
 				names = append(names, k)
 				values = append(values, "")
 			}
@@ -215,6 +209,7 @@ func (c *Collector) convertMetricFamily(logger *slog.Logger, metricFamily *dto.M
 			for _, q := range metric.GetSummary().GetQuantile() {
 				quantiles[q.GetQuantile()] = q.GetValue()
 			}
+
 			ch <- prometheus.MustNewConstSummary(
 				prometheus.NewDesc(
 					metricFamily.GetName(),
@@ -230,6 +225,7 @@ func (c *Collector) convertMetricFamily(logger *slog.Logger, metricFamily *dto.M
 			for _, b := range metric.GetHistogram().GetBucket() {
 				buckets[b.GetUpperBound()] = b.GetCumulativeCount()
 			}
+
 			ch <- prometheus.MustNewConstHistogram(
 				prometheus.NewDesc(
 					metricFamily.GetName(),
@@ -288,8 +284,8 @@ type carriageReturnFilteringReader struct {
 // Read returns data from the underlying io.Reader, but with \r filtered out.
 func (cr carriageReturnFilteringReader) Read(p []byte) (int, error) {
 	buf := make([]byte, len(p))
-	n, err := cr.r.Read(buf)
 
+	n, err := cr.r.Read(buf)
 	if err != nil && err != io.EOF {
 		return n, err
 	}
@@ -354,7 +350,6 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 
 			return nil
 		})
-
 		if err != nil && directory != "" {
 			errs = append(errs, fmt.Errorf("error reading textfile directory %q: %w", directory, err))
 		}
@@ -380,7 +375,7 @@ func scrapeFile(path string, logger *slog.Logger) ([]*dto.MetricFamily, error) {
 		return nil, err
 	}
 
-	var parser expfmt.TextParser
+	parser := expfmt.NewTextParser(model.UTF8Validation)
 
 	r, encoding := utfbom.Skip(carriageReturnFilteringReader{r: file})
 	if err = checkBOM(encoding); err != nil {

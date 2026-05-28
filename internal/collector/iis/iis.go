@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -33,10 +35,10 @@ import (
 const Name = "iis"
 
 type Config struct {
-	SiteInclude *regexp.Regexp `yaml:"site_include"`
-	SiteExclude *regexp.Regexp `yaml:"site_exclude"`
-	AppInclude  *regexp.Regexp `yaml:"app_include"`
-	AppExclude  *regexp.Regexp `yaml:"app_exclude"`
+	SiteInclude *regexp.Regexp `yaml:"site-include"`
+	SiteExclude *regexp.Regexp `yaml:"site-exclude"`
+	AppInclude  *regexp.Regexp `yaml:"app-include"`
+	AppExclude  *regexp.Regexp `yaml:"app-exclude"`
 }
 
 //nolint:gochecknoglobals
@@ -48,14 +50,18 @@ var ConfigDefaults = Config{
 }
 
 type Collector struct {
-	config     Config
-	iisVersion simpleVersion
-
-	info *prometheus.Desc
 	collectorWebService
+	collectorHttpServiceRequestQueues
 	collectorAppPoolWAS
 	collectorW3SVCW3WP
 	collectorWebServiceCache
+
+	config     Config
+	iisVersion simpleVersion
+
+	logger *slog.Logger
+
+	info *prometheus.Desc
 }
 
 func New(config *Config) *Collector {
@@ -148,6 +154,7 @@ func (c *Collector) GetName() string {
 
 func (c *Collector) Close() error {
 	c.perfDataCollectorWebService.Close()
+	c.perfDataCollectorHttpServiceRequestQueues.Close()
 	c.perfDataCollectorAppPoolWAS.Close()
 	c.w3SVCW3WPPerfDataCollector.Close()
 	c.serviceCachePerfDataCollector.Close()
@@ -156,9 +163,9 @@ func (c *Collector) Close() error {
 }
 
 func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
-	logger = logger.With(slog.String("collector", Name))
+	c.logger = logger.With(slog.String("collector", Name))
 
-	c.iisVersion = c.getIISVersion(logger)
+	c.iisVersion = c.getIISVersion()
 
 	c.info = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "info"),
@@ -171,6 +178,10 @@ func (c *Collector) Build(logger *slog.Logger, _ *mi.Session) error {
 
 	if err := c.buildWebService(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to build Web Service collector: %w", err))
+	}
+
+	if err := c.buildHttpServiceRequestQueues(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to build Http Service collector: %w", err))
 	}
 
 	if err := c.buildAppPoolWAS(); err != nil {
@@ -193,10 +204,10 @@ type simpleVersion struct {
 	minor uint64
 }
 
-func (c *Collector) getIISVersion(logger *slog.Logger) simpleVersion {
+func (c *Collector) getIISVersion() simpleVersion {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\InetStp\`, registry.QUERY_VALUE)
 	if err != nil {
-		logger.Warn("couldn't open registry to determine IIS version",
+		c.logger.Warn("couldn't open registry to determine IIS version",
 			slog.Any("err", err),
 		)
 
@@ -206,7 +217,7 @@ func (c *Collector) getIISVersion(logger *slog.Logger) simpleVersion {
 	defer func() {
 		err = k.Close()
 		if err != nil {
-			logger.Warn("Failed to close registry key",
+			c.logger.Warn("Failed to close registry key",
 				slog.Any("err", err),
 			)
 		}
@@ -214,7 +225,7 @@ func (c *Collector) getIISVersion(logger *slog.Logger) simpleVersion {
 
 	major, _, err := k.GetIntegerValue("MajorVersion")
 	if err != nil {
-		logger.Warn("Couldn't open registry to determine IIS version",
+		c.logger.Warn("Couldn't open registry to determine IIS version",
 			slog.Any("err", err),
 		)
 
@@ -223,14 +234,14 @@ func (c *Collector) getIISVersion(logger *slog.Logger) simpleVersion {
 
 	minor, _, err := k.GetIntegerValue("MinorVersion")
 	if err != nil {
-		logger.Warn("Couldn't open registry to determine IIS version",
+		c.logger.Warn("Couldn't open registry to determine IIS version",
 			slog.Any("err", err),
 		)
 
 		return simpleVersion{}
 	}
 
-	logger.Debug(fmt.Sprintf("Detected IIS %d.%d\n", major, minor))
+	c.logger.Debug(fmt.Sprintf("Detected IIS %d.%d\n", major, minor))
 
 	return simpleVersion{
 		major: major,
@@ -251,6 +262,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 
 	if err := c.collectWebService(ch); err != nil {
 		errs = append(errs, fmt.Errorf("failed to collect Web Service metrics: %w", err))
+	}
+
+	if err := c.collectHttpServiceRequestQueues(ch); err != nil {
+		errs = append(errs, fmt.Errorf("failed to collect Http Service Request Queues metrics: %w", err))
 	}
 
 	if err := c.collectAppPoolWAS(ch); err != nil {

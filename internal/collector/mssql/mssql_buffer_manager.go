@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -56,7 +58,7 @@ type collectorBufferManager struct {
 type perfDataCounterValuesBufMan struct {
 	BufManBackgroundWriterPagesPerSec   float64 `perfdata:"Background writer pages/sec"`
 	BufManBufferCacheHitRatio           float64 `perfdata:"Buffer cache hit ratio"`
-	BufManBufferCacheHitRatioBase       float64 `perfdata:"Buffer cache hit ratio base,secondvalue"`
+	BufManBufferCacheHitRatioBase       float64 `perfdata:"Buffer cache hit ratio,secondvalue"`
 	BufManCheckpointPagesPerSec         float64 `perfdata:"Checkpoint pages/sec"`
 	BufManDatabasePages                 float64 `perfdata:"Database pages"`
 	BufManExtensionAllocatedPages       float64 `perfdata:"Extension allocated pages"`

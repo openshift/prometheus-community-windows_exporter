@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -36,7 +38,9 @@ var ConfigDefaults = Config{}
 
 // A Collector is a Prometheus Collector for a few WMI metrics in Win32_DiskDrive.
 type Collector struct {
-	config    Config
+	config Config
+	logger *slog.Logger
+
 	miSession *mi.Session
 	miQuery   mi.Query
 
@@ -71,7 +75,9 @@ func (c *Collector) Close() error {
 	return nil
 }
 
-func (c *Collector) Build(_ *slog.Logger, miSession *mi.Session) error {
+func (c *Collector) Build(logger *slog.Logger, miSession *mi.Session) error {
+	c.logger = logger.With(slog.String("collector", Name))
+
 	c.diskInfo = prometheus.NewDesc(
 		prometheus.BuildFQName(types.Namespace, Name, "info"),
 		"General drive information",
@@ -146,7 +152,7 @@ var (
 		"Error",
 		"Degraded",
 		"Unknown",
-		"Pred fail",
+		"Pred Fail",
 		"Starting",
 		"Stopping",
 		"Service",
@@ -239,6 +245,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			if availNum == int(disk.Availability) {
 				isCurrentState = 1.0
 			}
+
 			ch <- prometheus.MustNewConstMetric(
 				c.availability,
 				prometheus.GaugeValue,

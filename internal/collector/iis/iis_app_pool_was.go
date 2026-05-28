@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -199,66 +201,77 @@ func (c *Collector) collectAppPoolWAS(ch chan<- prometheus.Metric) error {
 			data.CurrentApplicationPoolUptime,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.currentWorkerProcesses,
 			prometheus.GaugeValue,
 			data.CurrentWorkerProcesses,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.maximumWorkerProcesses,
 			prometheus.GaugeValue,
 			data.MaximumWorkerProcesses,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.recentWorkerProcessFailures,
 			prometheus.GaugeValue,
 			data.RecentWorkerProcessFailures,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.timeSinceLastWorkerProcessFailure,
 			prometheus.GaugeValue,
 			data.TimeSinceLastWorkerProcessFailure,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalApplicationPoolRecycles,
 			prometheus.CounterValue,
 			data.TotalApplicationPoolRecycles,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalApplicationPoolUptime,
 			prometheus.CounterValue,
 			data.TotalApplicationPoolUptime,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalWorkerProcessesCreated,
 			prometheus.CounterValue,
 			data.TotalWorkerProcessesCreated,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalWorkerProcessFailures,
 			prometheus.CounterValue,
 			data.TotalWorkerProcessFailures,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalWorkerProcessPingFailures,
 			prometheus.CounterValue,
 			data.TotalWorkerProcessPingFailures,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalWorkerProcessShutdownFailures,
 			prometheus.CounterValue,
 			data.TotalWorkerProcessShutdownFailures,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.totalWorkerProcessStartupFailures,
 			prometheus.CounterValue,

@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -184,72 +186,84 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
 			data.RequestsPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.requestProcessingTime,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.RequestProcessingTime),
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.retrievalsPerSecond,
 			prometheus.CounterValue,
 			data.RetrievalsPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.retrievalProcessingTime,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.RetrievalProcessingTime),
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.failedRequestsPerSecond,
 			prometheus.CounterValue,
 			data.FailedRequestsPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.issuedRequestsPerSecond,
 			prometheus.CounterValue,
 			data.IssuedRequestsPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.pendingRequestsPerSecond,
 			prometheus.CounterValue,
 			data.PendingRequestsPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.requestCryptographicSigningTime,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.RequestCryptographicSigningTime),
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.requestPolicyModuleProcessingTime,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.RequestPolicyModuleProcessingTime),
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.challengeResponsesPerSecond,
 			prometheus.CounterValue,
 			data.ChallengeResponsesPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.challengeResponseProcessingTime,
 			prometheus.GaugeValue,
 			utils.MilliSecToSec(data.ChallengeResponseProcessingTime),
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.signedCertificateTimestampListsPerSecond,
 			prometheus.CounterValue,
 			data.SignedCertificateTimestampListsPerSecond,
 			data.Name,
 		)
+
 		ch <- prometheus.MustNewConstMetric(
 			c.signedCertificateTimestampListProcessingTime,
 			prometheus.GaugeValue,

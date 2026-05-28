@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,6 +18,7 @@
 package process
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,6 +32,7 @@ import (
 	"github.com/prometheus-community/windows_exporter/internal/mi"
 	"github.com/prometheus-community/windows_exporter/internal/pdh"
 	"github.com/prometheus-community/windows_exporter/internal/pdh/registry"
+	pdhtypes "github.com/prometheus-community/windows_exporter/internal/pdh/types"
 	"github.com/prometheus-community/windows_exporter/internal/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sys/windows"
@@ -37,9 +41,11 @@ import (
 const Name = "process"
 
 type Config struct {
-	ProcessInclude      *regexp.Regexp `yaml:"process_include"`
-	ProcessExclude      *regexp.Regexp `yaml:"process_exclude"`
-	EnableWorkerProcess bool           `yaml:"enable_iis_worker_process"` //nolint:tagliatelle
+	ProcessInclude      *regexp.Regexp `yaml:"include"`
+	ProcessExclude      *regexp.Regexp `yaml:"exclude"`
+	EnableWorkerProcess bool           `yaml:"iis"`
+	EnableCMDLine       bool           `yaml:"cmdline"`
+	CounterVersion      uint8          `yaml:"counter-version"`
 }
 
 //nolint:gochecknoglobals
@@ -47,6 +53,8 @@ var ConfigDefaults = Config{
 	ProcessInclude:      types.RegExpAny,
 	ProcessExclude:      types.RegExpEmpty,
 	EnableWorkerProcess: false,
+	EnableCMDLine:       true,
+	CounterVersion:      0,
 }
 
 type Collector struct {
@@ -57,10 +65,9 @@ type Collector struct {
 	miSession                 *mi.Session
 	workerProcessMIQueryQuery mi.Query
 
-	collectorVersion int
-
-	collectorV1
-	collectorV2
+	perfDataCollector pdhtypes.Collector
+	perfDataObject    []perfDataCounterValues
+	workerCh          chan processWorkerRequest
 
 	lookupCache sync.Map
 
@@ -76,8 +83,6 @@ type Collector struct {
 	poolBytes         *prometheus.Desc
 	priorityBase      *prometheus.Desc
 	privateBytes      *prometheus.Desc
-	// Deprecated: Use start_time_seconds_timestamp instead
-	startTimeOld      *prometheus.Desc
 	startTime         *prometheus.Desc
 	threadCount       *prometheus.Desc
 	virtualBytes      *prometheus.Desc
@@ -128,6 +133,16 @@ func NewWithFlags(app *kingpin.Application) *Collector {
 		"Enable IIS collectWorker process name queries. May cause the collector to leak memory.",
 	).Default(strconv.FormatBool(c.config.EnableWorkerProcess)).BoolVar(&c.config.EnableWorkerProcess)
 
+	app.Flag(
+		"collector.process.cmdline",
+		"If enabled, the full cmdline is exposed to the windows_process_info metrics.",
+	).Default(strconv.FormatBool(c.config.EnableCMDLine)).BoolVar(&c.config.EnableCMDLine)
+
+	app.Flag(
+		"collector.process.counter-version",
+		"Version of the process collector to use. 1 for Process V1, 2 for Process V2. Defaults to 0 which will use the latest version available.",
+	).Default(strconv.FormatUint(uint64(c.config.CounterVersion), 10)).Uint8Var(&c.config.CounterVersion)
+
 	app.Action(func(*kingpin.ParseContext) error {
 		var err error
 
@@ -155,8 +170,12 @@ func (c *Collector) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.closeV1()
-	c.closeV2()
+	c.perfDataCollector.Close()
+
+	if c.workerCh != nil {
+		close(c.workerCh)
+		c.workerCh = nil
+	}
 
 	return nil
 }
@@ -164,42 +183,33 @@ func (c *Collector) Close() error {
 func (c *Collector) Build(logger *slog.Logger, miSession *mi.Session) error {
 	c.logger = logger.With(slog.String("collector", Name))
 
-	if miSession == nil {
-		return errors.New("miSession is nil")
-	}
+	var err error
 
-	miQuery, err := mi.NewQuery("SELECT AppPoolName, ProcessId FROM WorkerProcess")
-	if err != nil {
-		return fmt.Errorf("failed to create WMI query: %w", err)
-	}
+	switch c.config.CounterVersion {
+	case 2:
+		c.perfDataCollector, err = pdh.NewCollector[perfDataCounterValues](pdh.CounterTypeRaw, "Process V2", pdh.InstancesAll)
+	case 1:
+		c.perfDataCollector, err = registry.NewCollector[perfDataCounterValues]("Process", pdh.InstancesAll)
+	default:
+		c.perfDataCollector, err = pdh.NewCollector[perfDataCounterValues](pdh.CounterTypeRaw, "Process V2", pdh.InstancesAll)
+		c.config.CounterVersion = 2
 
-	c.workerProcessMIQueryQuery = miQuery
-	c.miSession = miSession
-
-	c.collectorVersion = 2
-	c.perfDataCollectorV2, err = pdh.NewCollector[perfDataCounterValuesV2](pdh.CounterTypeRaw, "Process V2", pdh.InstancesAll)
-
-	if errors.Is(err, pdh.NewPdhError(pdh.CstatusNoObject)) {
-		c.collectorVersion = 1
-		c.perfDataCollectorV1, err = registry.NewCollector[perfDataCounterValuesV1]("Process", pdh.InstancesAll)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create Process collector: %w", err)
-	}
-
-	if c.collectorVersion == 1 {
-		c.workerChV1 = make(chan processWorkerRequestV1, 32)
-
-		for range 4 {
-			go c.collectWorkerV1()
+		if errors.Is(err, pdh.NewPdhError(pdh.CstatusNoObject)) {
+			c.perfDataCollector, err = registry.NewCollector[perfDataCounterValues]("Process", pdh.InstancesAll)
+			c.config.CounterVersion = 1
 		}
-	} else {
-		c.workerChV2 = make(chan processWorkerRequestV2, 32)
 
-		for range 4 {
-			go c.collectWorkerV2()
-		}
+		c.logger.LogAttrs(context.Background(), slog.LevelDebug, fmt.Sprintf("Using process collector V%d", c.config.CounterVersion))
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to create Process V%d collector: %w", c.config.CounterVersion, err)
+	}
+
+	c.workerCh = make(chan processWorkerRequest, 32)
+
+	for range 4 {
+		go c.collectWorker()
 	}
 
 	c.mu = sync.RWMutex{}
@@ -213,13 +223,6 @@ func (c *Collector) Build(logger *slog.Logger, miSession *mi.Session) error {
 		prometheus.BuildFQName(types.Namespace, Name, "info"),
 		"Process information.",
 		[]string{"process", "process_id", "creating_process_id", "process_group_id", "owner", "cmdline"},
-		nil,
-	)
-
-	c.startTimeOld = prometheus.NewDesc(
-		prometheus.BuildFQName(types.Namespace, Name, "start_time"),
-		"DEPRECATED: Use start_time_seconds_timestamp instead",
-		[]string{"process", "process_id"},
 		nil,
 	)
 
@@ -314,22 +317,33 @@ func (c *Collector) Build(logger *slog.Logger, miSession *mi.Session) error {
 		nil,
 	)
 
+	if c.config.EnableWorkerProcess {
+		if miSession == nil {
+			return errors.New("miSession is nil")
+		}
+
+		miQuery, err := mi.NewQuery("SELECT AppPoolName, ProcessId FROM WorkerProcess")
+		if err != nil {
+			return fmt.Errorf("failed to create WMI query: %w", err)
+		}
+
+		c.workerProcessMIQueryQuery = miQuery
+		c.miSession = miSession
+
+		var workerProcesses []WorkerProcess
+
+		if err = c.miSession.Query(&workerProcesses, mi.NamespaceRootWebAdministration, c.workerProcessMIQueryQuery); err != nil {
+			c.config.EnableWorkerProcess = false
+
+			return fmt.Errorf("WMI query for collector.process.iis failed: %w", err)
+		}
+	}
+
 	return nil
 }
 
 func (c *Collector) Collect(ch chan<- prometheus.Metric) error {
-	var workerProcesses []WorkerProcess
-	if c.config.EnableWorkerProcess {
-		if err := c.miSession.Query(&workerProcesses, mi.NamespaceRootWebAdministration, c.workerProcessMIQueryQuery); err != nil {
-			return fmt.Errorf("WMI query failed: %w", err)
-		}
-	}
-
-	if c.collectorVersion == 1 {
-		return c.collectV1(ch, workerProcesses)
-	}
-
-	return c.collectV2(ch, workerProcesses)
+	return c.collect(ch)
 }
 
 // ref: https://github.com/microsoft/hcsshim/blob/8beabacfc2d21767a07c20f8dd5f9f3932dbf305/internal/uvm/stats.go#L25
@@ -408,19 +422,25 @@ func (c *Collector) getExtendedProcessInformation(hProcess windows.Handle) (stri
 		return "", 0, fmt.Errorf("failed to read process memory: %w", err)
 	}
 
-	cmdLineUTF16 := make([]uint16, processParameters.CommandLine.Length)
+	var cmdLine string
 
-	err = windows.ReadProcessMemory(hProcess,
-		uintptr(unsafe.Pointer(processParameters.CommandLine.Buffer)),
-		(*byte)(unsafe.Pointer(&cmdLineUTF16[0])),
-		uintptr(processParameters.CommandLine.Length),
-		nil,
-	)
-	if err != nil {
-		return "", processParameters.ProcessGroupId, fmt.Errorf("failed to read process memory: %w", err)
+	if c.config.EnableCMDLine {
+		cmdLineUTF16 := make([]uint16, processParameters.CommandLine.Length)
+
+		err = windows.ReadProcessMemory(hProcess,
+			uintptr(unsafe.Pointer(processParameters.CommandLine.Buffer)),
+			(*byte)(unsafe.Pointer(&cmdLineUTF16[0])),
+			uintptr(processParameters.CommandLine.Length),
+			nil,
+		)
+		if err != nil {
+			return "", processParameters.ProcessGroupId, fmt.Errorf("failed to read process memory: %w", err)
+		}
+
+		cmdLine = strings.TrimSpace(windows.UTF16ToString(cmdLineUTF16))
 	}
 
-	return strings.TrimSpace(windows.UTF16ToString(cmdLineUTF16)), processParameters.ProcessGroupId, nil
+	return cmdLine, processParameters.ProcessGroupId, nil
 }
 
 func (c *Collector) getProcessOwner(logger *slog.Logger, hProcess windows.Handle) (string, error) {

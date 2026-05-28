@@ -1,4 +1,6 @@
-// Copyright 2024 The Prometheus Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -39,11 +41,7 @@ var OperationOptionsTimeout = UTF16PtrFromString[*uint16]("__MI_OPERATIONOPTIONS
 type OperationFlags uint32
 
 const (
-	OperationFlagsDefaultRTTI  OperationFlags = 0x0000
-	OperationFlagsBasicRTTI    OperationFlags = 0x0002
-	OperationFlagsNoRTTI       OperationFlags = 0x0400
 	OperationFlagsStandardRTTI OperationFlags = 0x0800
-	OperationFlagsFullRTTI     OperationFlags = 0x0004
 )
 
 // Operation represents an operation.
@@ -121,7 +119,7 @@ func (o *Operation) Cancel() error {
 		return ErrNotInitialized
 	}
 
-	r0, _, _ := syscall.SyscallN(o.ft.Close, uintptr(unsafe.Pointer(o)), 0)
+	r0, _, _ := syscall.SyscallN(o.ft.Cancel, uintptr(unsafe.Pointer(o)), 0)
 
 	if result := ResultError(r0); !errors.Is(result, MI_RESULT_OK) {
 		return result
@@ -152,7 +150,6 @@ func (o *Operation) GetInstance() (*Instance, bool, error) {
 		uintptr(unsafe.Pointer(&errorMessageUTF16)),
 		uintptr(unsafe.Pointer(&errorDetails)),
 	)
-
 	if !errors.Is(instanceResult, MI_RESULT_OK) {
 		return nil, false, fmt.Errorf("instance result: %w (%s)", instanceResult, windows.UTF16PtrToString(errorMessageUTF16))
 	}
@@ -228,10 +225,14 @@ func (o *Operation) Unmarshal(dst any) error {
 				field.SetInt(int64(element.value))
 			case ValueTypeSTRING:
 				if element.value == 0 {
-					return fmt.Errorf("%s: invalid pointer: value is nil", miTag)
+					field.SetString("") // Set empty string for nil values
+
+					continue
 				}
 
-				// Convert the UTF-16 string to a Go string
+				// Convert uintptr to *uint16 for Windows UTF-16 string
+				// This is safe because element.value comes directly from Windows MI API
+				//goland:noinspection GoVetUnsafePointer
 				stringValue := windows.UTF16PtrToString((*uint16)(unsafe.Pointer(element.value)))
 
 				field.SetString(stringValue)
