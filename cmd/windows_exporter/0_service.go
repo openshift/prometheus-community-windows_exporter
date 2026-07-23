@@ -203,7 +203,9 @@ func isWindowsService() (bool, error) {
 
 	for ; ; parentProcess = (*windows.SYSTEM_PROCESS_INFORMATION)(unsafe.Pointer(uintptr(unsafe.Pointer(parentProcess)) + uintptr(parentProcess.NextEntryOffset))) {
 		if parentProcess.UniqueProcessID == currentProcess.InheritedFromUniqueProcessId {
-			return strings.EqualFold("services.exe", parentProcess.ImageName.String()), nil
+			parentName := parentProcess.ImageName.String()
+			return strings.EqualFold("services.exe", parentName) ||
+				strings.EqualFold("kube-log-runner.exe", parentName), nil
 		}
 
 		if parentProcess.NextEntryOffset == 0 {
